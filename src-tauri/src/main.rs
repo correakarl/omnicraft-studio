@@ -835,6 +835,32 @@ fn open_folder_cmd(folder_name: String, subfolder: Option<String>) -> Result<(),
 }
 
 #[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("rundll32")
+            .args(["url.dll,FileProtocolHandler", &url])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn list_available_icons() -> Vec<String> {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     let mut p = PathBuf::from(&home);
@@ -1149,6 +1175,7 @@ fn main() {
             delete_account_cmd,
             logout_user_cmd,
             open_folder_cmd,
+            open_url,
             list_available_icons,
             list_launchers,
             launch_instance_cmd,

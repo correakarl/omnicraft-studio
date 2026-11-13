@@ -449,7 +449,16 @@
     try {
       localSkins = await invoke<LocalSkinModel[]>('get_local_skins');
     } catch (e) {
-      console.warn('Error refrescando skins:', e);
+      console.error('Error al recargar skins locales:', e);
+    }
+  }
+
+  async function openExternalUrl(url: string) {
+    try {
+      await invoke('open_url', { url });
+    } catch (err) {
+      console.error('Error abriendo enlace externo:', err);
+      window.open(url, '_blank');
     }
   }
 
@@ -1121,19 +1130,18 @@
         </button>
 
         <!-- Apoyo / Donaciones en Sidebar -->
-        <a
-          href="https://www.paypal.com/ncp/payment/KR4E3PNGJEXQY"
-          target="_blank"
-          rel="noreferrer"
-          class="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold transition-all text-pink-300 hover:text-white hover:bg-pink-900/30 border border-pink-500/20 bg-pink-950/20"
-          title="Apoyar el desarrollo independiente de Omnicraft Studio (PayPal)"
+        <button
+          type="button"
+          onclick={() => openExternalUrl('https://github.com/correakarl/omnicraft-studio')}
+          class="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold transition-all text-pink-300 hover:text-white hover:bg-pink-900/30 border border-pink-500/20 bg-pink-950/20 text-left"
+          title="Ver proyecto y apoyar en GitHub / PayPal"
         >
           <div class="flex items-center gap-3">
             <Heart class="w-4 h-4 text-pink-400 fill-pink-400/50" />
             <span>Donar al Proyecto</span>
           </div>
-          <span class="text-[10px] text-pink-400 font-mono">PayPal</span>
-        </a>
+          <span class="text-[10px] text-pink-400 font-mono">GitHub</span>
+        </button>
       </div>
     </nav>
 
@@ -2451,16 +2459,15 @@
                 </p>
               </div>
 
-              <a
-                href="https://www.paypal.com/ncp/payment/KR4E3PNGJEXQY"
-                target="_blank"
-                rel="noreferrer"
+              <button
+                type="button"
+                onclick={() => openExternalUrl('https://github.com/correakarl/omnicraft-studio')}
                 class="px-4 py-2.5 rounded-xl bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white font-bold text-xs shadow-lg shadow-pink-600/25 flex items-center gap-2 transition transform active:scale-95 shrink-0"
               >
                 <Heart class="w-4 h-4 fill-white" />
-                <span>Apoyar / Donar (PayPal)</span>
+                <span>Apoyar en GitHub / PayPal</span>
                 <ExternalLink class="w-3.5 h-3.5 opacity-80" />
-              </a>
+              </button>
             </div>
 
             <!-- Reconocimiento y Agradecimiento Formal -->
@@ -2474,24 +2481,27 @@
             <div class="pt-3 border-t border-obsidian-800/80 flex flex-wrap items-center justify-between text-xs text-slate-400 gap-3">
               <div class="flex items-center gap-2">
                 <span class="text-slate-500">Donaciones Seguras:</span>
-                <a
-                  href="https://www.paypal.com/ncp/payment/KR4E3PNGJEXQY"
-                  target="_blank"
-                  rel="noreferrer"
+                <button
+                  type="button"
+                  onclick={() => openExternalUrl('https://www.paypal.com/ncp/payment/KR4E3PNGJEXQY')}
                   class="px-2.5 py-1 rounded bg-obsidian-950 border border-pink-500/30 text-pink-400 font-medium hover:bg-pink-950/30 flex items-center gap-1.5 transition"
                 >
                   <Heart class="w-3 h-3 fill-pink-400" />
                   <span>Pasarela Oficial PayPal</span>
-                </a>
+                </button>
               </div>
               <div class="flex items-center gap-2 text-slate-400 text-[11px]">
                 <span class="px-2 py-0.5 rounded bg-obsidian-800/90 border border-obsidian-700 text-slate-300 font-mono">Licencia CC BY-NC-SA 4.0</span>
                 <span>• Autor:</span>
                 <span class="font-bold text-slate-200">Karl Correa</span>
                 <span class="text-slate-600">•</span>
-                <a href="https://github.com/correakarl/omnicraft-studio" target="_blank" rel="noreferrer" class="text-omni-indigo hover:underline flex items-center gap-1">
+                <button
+                  type="button"
+                  onclick={() => openExternalUrl('https://github.com/correakarl/omnicraft-studio')}
+                  class="text-omni-indigo hover:underline flex items-center gap-1"
+                >
                   <Github class="w-3.5 h-3.5" /> GitHub
-                </a>
+                </button>
               </div>
             </div>
           </div>
