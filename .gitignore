@@ -1,5 +1,10 @@
 node_modules
 dist
+dist-packages
 target
+src-tauri/target
 .DS_Store
 *.log
+*.deb
+*.rpm
+*.AppImage

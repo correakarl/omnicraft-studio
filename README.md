@@ -21,18 +21,17 @@ Omnicraft Studio es un software de autoría propia, distribuido de forma **compl
 
 ---
 
-## 📥 Descarga de Instaladores Precompilados (Linux)
+## 📥 Descarga de Instaladores Multiplataforma (GitHub Releases)
 
-Los paquetes de instalación listos para usar se encuentran en la carpeta [`dist-packages/`](dist-packages/):
+Todos los paquetes ejecutables e instaladores para cada sistema operativo son construidos de forma limpia y transparente mediante los pipelines de **GitHub Actions CI/CD** y se encuentran disponibles para descargar en la sección oficial de [Releases de GitHub](https://github.com/correakarl/omnicraft-studio/releases):
 
-| Paquete | Formato | Tamaño | Distribución / Comando de Instalación |
-| :--- | :--- | :--- | :--- |
-| **[Debian / Ubuntu / Mint / Pop!_OS](dist-packages/omnicraft-studio_1.0.0_amd64.deb)** | `.deb` | ~6.8 MB | `sudo apt install ./omnicraft-studio_1.0.0_amd64.deb` |
-| **[Universal Portátil](dist-packages/omnicraft-studio_1.0.0.AppImage)** | `.AppImage` | ~110 MB | `chmod +x *.AppImage && ./omnicraft-studio_1.0.0.AppImage` |
-| **[Fedora / openSUSE / RHEL](dist-packages/omnicraft-studio-1.0.0.x86_64.rpm)** | `.rpm` | ~6.8 MB | `sudo dnf install ./omnicraft-studio-1.0.0.x86_64.rpm` |
-| **[Arch Linux / Tarball Portátil](dist-packages/omnicraft-studio-v1.0.0-linux-x86_64.tar.gz)** | `.tar.gz` | ~6.6 MB | `tar -xzvf *.tar.gz && ./omnicraft-v2` |
-
-> Para instrucciones paso a paso detalladas, consulta la [Guía en `dist-packages/README.md`](dist-packages/README.md).
+| Sistema Operativo | Paquetes / Formatos Disponibles | Método de Ejecución / Instalación |
+| :--- | :--- | :--- |
+| **Linux (Debian / Ubuntu / Mint)** | `.deb` (~6.5 MB) | `sudo apt install ./omnicraft-studio_*.deb` |
+| **Linux (Universal)** | `.AppImage` Portátil (~110 MB) | `chmod +x *.AppImage && ./omnicraft-studio_*.AppImage` |
+| **Linux (Fedora / openSUSE / RHEL)** | `.rpm` (~6.5 MB) | `sudo dnf install ./omnicraft-studio-*.rpm` |
+| **Windows 10 / 11** | `.msi` y `.exe` (Instalador NSIS) | Doble clic en el instalador |
+| **macOS (Intel & Apple Silicon)** | `.dmg` y `.app` | Abrir `.dmg` y arrastrar a Aplicaciones |
 
 ---
 
