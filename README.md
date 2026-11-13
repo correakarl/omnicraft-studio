@@ -5,7 +5,7 @@
 [![Svelte](https://img.shields.io/badge/Svelte-5-FF3E00?logo=svelte)](https://svelte.dev/)
 [![TailwindCSS](https://img.shields.io/badge/Tailwind-CSS-38B2AC?logo=tailwind-css)](https://tailwindcss.com/)
 [![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC_BY--NC--SA_4.0-lightgrey.svg)](LICENSE)
-[![Donate PayPal](https://img.shields.io/badge/Donate-PayPal-ff69b4?logo=paypal)](https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=thauksephiroth@gmail.com&lc=ES&item_name=Donacion+Omnicraft+Studio&currency_code=USD)
+[![Donate PayPal](https://img.shields.io/badge/Donate-PayPal-ff69b4?logo=paypal)](https://www.paypal.com/ncp/payment/KR4E3PNGJEXQY)
 
 > **Omnicraft Studio** es la suite y gestor multi-instancia de Minecraft de próxima generación. Desarrollado nativamente en **Rust 2021 + Tauri v2** y una interfaz moderna reactiva en **Svelte 5 Runes + TailwindCSS**, ofrece máximo rendimiento, huella de memoria mínima (~40MB RAM), seguridad estricta, soporte multi-proceso simultáneo y aislamiento atómico absoluto.
 
@@ -15,8 +15,9 @@
 
 Omnicraft Studio es un software de autoría propia, distribuido de forma **completamente gratuita y de código abierto**, sin funciones de pago ni publicidad. Si este proyecto te resulta útil y deseas apoyar su desarrollo, auditorías de ciberseguridad y mantenimiento continuo:
 
-* 💳 **Donar vía PayPal:** [Hacer una donación voluntaria](https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=thauksephiroth@gmail.com&lc=ES&item_name=Donacion+Omnicraft+Studio&currency_code=USD)
-* 📧 **Contacto y donaciones directas PayPal:** `thauksephiroth@gmail.com`
+* 💳 **Donar vía PayPal:** [Hacer una donación voluntaria vía PayPal](https://www.paypal.com/ncp/payment/KR4E3PNGJEXQY)
+* 🌐 **Página dedicada de donación:** Disponible en [`donate/index.html`](donate/index.html) con botón integrado oficial de PayPal Hosted Buttons.
+* 💬 **Contacto y sugerencias:** Directamente a través del repositorio en [GitHub Issues / Discussions](https://github.com/correakarl/omnicraft-studio).
 
 ---
 

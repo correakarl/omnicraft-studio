@@ -1119,6 +1119,21 @@
           </div>
           <span class="text-[10px] px-2 py-0.5 rounded-full bg-obsidian-950/80 font-mono text-slate-300">{javas.length}</span>
         </button>
+
+        <!-- Apoyo / Donaciones en Sidebar -->
+        <a
+          href="https://www.paypal.com/ncp/payment/KR4E3PNGJEXQY"
+          target="_blank"
+          rel="noreferrer"
+          class="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold transition-all text-pink-300 hover:text-white hover:bg-pink-900/30 border border-pink-500/20 bg-pink-950/20"
+          title="Apoyar el desarrollo independiente de Omnicraft Studio (PayPal)"
+        >
+          <div class="flex items-center gap-3">
+            <Heart class="w-4 h-4 text-pink-400 fill-pink-400/50" />
+            <span>Donar al Proyecto</span>
+          </div>
+          <span class="text-[10px] text-pink-400 font-mono">PayPal</span>
+        </a>
       </div>
     </nav>
 
@@ -1134,59 +1149,47 @@
 
   <!-- CONTENIDO PRINCIPAL -->
   <main class="flex-1 flex flex-col bg-obsidian-950/95 overflow-hidden">
-    <!-- BARRA SUPERIOR LIMPIA Y SIN SOLAPAMIENTO -->
+    <!-- BARRA SUPERIOR LIMPIA Y ESPACIOSA -->
     <header class="h-14 px-4 bg-obsidian-900/80 border-b border-obsidian-750/70 flex items-center justify-between backdrop-blur-md gap-3 shrink-0">
-      <!-- Lado Izquierdo: Selector de Instancia Predeterminada / Estado -->
+      <!-- Lado Izquierdo: Selector de Instancia Predeterminada / Atajos de Carpeta y Ajustes -->
       <div class="flex items-center gap-2 min-w-0">
         {#if instances.length > 0}
-          <div class="flex items-center bg-obsidian-950 border border-obsidian-800 rounded-lg px-2.5 py-1 gap-2 shadow-inner">
+          <div class="flex items-center bg-obsidian-950/80 border border-obsidian-800 rounded-lg px-2.5 py-1 gap-2 shadow-inner">
             <span class="w-2 h-2 rounded-full {isLaunching ? 'bg-amber-400 animate-ping' : (isInstanceRunning ? 'bg-emerald-400' : 'bg-slate-500')}"></span>
             
-            <label class="text-[10px] uppercase font-bold text-slate-500 hidden sm:inline">Default:</label>
+            <span class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Default:</span>
             <select
               value={selectedInstanceId}
               onchange={(e) => handleInstanceChange(e.currentTarget.value)}
-              class="bg-transparent text-xs font-bold text-white focus:outline-none cursor-pointer border-none p-0 pr-1 max-w-[150px] truncate"
-              title="Instancia seleccionada por defecto para arrancar desde el botón principal"
+              class="bg-transparent text-xs font-bold text-white focus:outline-none cursor-pointer border-none p-0 pr-1 max-w-[140px] truncate"
+              title="Instancia seleccionada para arrancar desde el botón principal"
             >
               {#each instances as inst}
                 <option value={inst.id} class="bg-obsidian-900 text-white font-medium">
-                  {inst.name} ({inst.mc_version})
+                  {inst.name}
                 </option>
               {/each}
             </select>
 
-            <span class="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-mono font-medium hidden md:inline">
-              {currentInstance.loader_type}
+            <span class="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-mono font-medium">
+              {currentInstance.mc_version}
             </span>
           </div>
 
-          <div class="flex items-center gap-1 border-l border-obsidian-800 pl-2">
+          <div class="flex items-center gap-1">
             <button
               onclick={() => handleOpenFolder(currentInstance.folder)}
-              class="p-1.5 rounded-lg bg-obsidian-900 hover:bg-obsidian-800 text-slate-400 hover:text-amber-400 border border-obsidian-750/80 transition"
-              title="Abrir carpeta .minecraft en explorador"
+              class="p-1.5 rounded-lg bg-obsidian-950/60 hover:bg-obsidian-800 text-slate-400 hover:text-amber-400 border border-obsidian-800 transition"
+              title="Abrir carpeta .minecraft"
             >
               <FolderOpen class="w-3.5 h-3.5" />
             </button>
             <button
               onclick={() => { instanceModalMode = 'edit'; isInstanceModalOpen = true; }}
-              class="p-1.5 rounded-lg bg-obsidian-900 hover:bg-obsidian-800 text-slate-400 hover:text-omni-cyan border border-obsidian-750/80 transition"
-              title="Ajustes de la instancia seleccionada"
+              class="p-1.5 rounded-lg bg-obsidian-950/60 hover:bg-obsidian-800 text-slate-400 hover:text-omni-cyan border border-obsidian-800 transition"
+              title="Ajustes de la instancia"
             >
               <Edit3 class="w-3.5 h-3.5" />
-            </button>
-            <button
-              onclick={() => handleExportModpack(false)}
-              disabled={isExporting}
-              class="p-1.5 rounded-lg bg-obsidian-900 hover:bg-obsidian-800 text-slate-400 hover:text-omni-lavender border border-obsidian-750/80 transition"
-              title="Exportar como modpack ZIP"
-            >
-              {#if isExporting}
-                <RotateCw class="w-3.5 h-3.5 animate-spin text-omni-cyan" />
-              {:else}
-                <Share2 class="w-3.5 h-3.5" />
-              {/if}
             </button>
           </div>
         {:else}
@@ -1194,27 +1197,15 @@
         {/if}
       </div>
 
-      <!-- Lado Derecho: Idioma, Cola de Descargas, Modo UI, y Botón Jugar -->
+      <!-- Lado Derecho: Idioma, Descargas, Modo UI y Botón Jugar -->
       <div class="flex items-center gap-2 shrink-0">
-        <!-- Botón de Donaciones / Apoyo al Creador -->
-        <a
-          href="https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=thauksephiroth@gmail.com&lc=ES&item_name=Donacion+Omnicraft+Studio&currency_code=USD"
-          target="_blank"
-          rel="noreferrer"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-pink-600/30 to-rose-600/30 hover:from-pink-600/50 hover:to-rose-600/50 text-pink-300 border border-pink-500/40 text-xs font-bold transition shadow-sm hover:shadow-pink-500/20 active:scale-95"
-          title="Apoyar el desarrollo independiente de Omnicraft Studio (PayPal)"
-        >
-          <Heart class="w-3.5 h-3.5 fill-pink-400 text-pink-400 animate-pulse" />
-          <span class="hidden lg:inline">Donar</span>
-        </a>
-
         <!-- Selector de Idioma Compacto -->
-        <div class="flex items-center bg-obsidian-950 border border-obsidian-750 rounded-lg px-2 py-1 text-xs">
-          <Languages class="w-3.5 h-3.5 text-omni-indigo mr-1.5 shrink-0" />
+        <div class="flex items-center bg-obsidian-950/80 border border-obsidian-800 rounded-lg px-2 py-1 text-xs">
+          <Languages class="w-3.5 h-3.5 text-omni-indigo mr-1 shrink-0" />
           <select
             value={currentLang}
             onchange={(e) => handleLanguageChange(e.currentTarget.value)}
-            class="bg-transparent text-xs font-bold text-slate-200 focus:outline-none cursor-pointer border-none p-0 pr-1"
+            class="bg-transparent text-xs font-bold text-slate-300 focus:outline-none cursor-pointer border-none p-0 pr-1"
             title="Seleccionar Idioma / Select Language"
           >
             {#each availableLanguages as lang}
@@ -1228,7 +1219,7 @@
         <!-- Botón Cajón de Descargas -->
         <button
           onclick={() => showDownloadsDrawer = !showDownloadsDrawer}
-          class="relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-bold transition shadow-sm bg-obsidian-950 border-obsidian-750 text-slate-300 hover:text-white hover:border-omni-indigo"
+          class="p-1.5 rounded-lg border text-xs font-bold transition shadow-sm bg-obsidian-950/80 border-obsidian-800 text-slate-300 hover:text-white hover:border-omni-indigo flex items-center gap-1.5"
           title="Ver Cola de Descargas Activa"
         >
           <Download class="w-3.5 h-3.5 {downloadTasks.some(t => !t.completed) ? 'text-amber-400 animate-bounce' : 'text-slate-400'}" />
@@ -1247,10 +1238,10 @@
         >
           {#if uiMode === 'advanced'}
             <Cpu class="w-3.5 h-3.5 text-amber-400" />
-            <span class="hidden md:inline">{t('mode_advanced')}</span>
+            <span>{t('mode_advanced')}</span>
           {:else}
             <Sparkles class="w-3.5 h-3.5 text-emerald-400" />
-            <span class="hidden md:inline">{t('mode_basic')}</span>
+            <span>{t('mode_basic')}</span>
           {/if}
         </button>
 
@@ -1262,25 +1253,20 @@
             title="Nueva versión de Omnicraft disponible"
           >
             <Download class="w-3.5 h-3.5 text-omni-cyan" />
-            <span class="hidden md:inline">Update</span>
+            <span>Update</span>
           </button>
         {/if}
 
         <!-- BOTÓN PRINCIPAL JUGAR MINECRAFT / ESTADO DE EJECUCIÓN -->
         {#if isInstanceRunning}
           <div class="flex items-center gap-1.5 ml-1">
-            <div class="flex items-center gap-2 px-3 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 text-xs font-bold animate-pulse">
+            <div class="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 text-xs font-bold animate-pulse">
               <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
               <span>Ejecutando</span>
-              {#if instanceResourceUsage}
-                <span class="text-[10px] text-emerald-300 font-mono hidden sm:inline">
-                  (PID {instanceResourceUsage.pid} • {instanceResourceUsage.ram_used_mb} MB)
-                </span>
-              {/if}
             </div>
             <button
               onclick={handleTerminateInstance}
-              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold text-xs bg-rose-600/20 hover:bg-rose-600/40 text-rose-300 border border-rose-500/40 transition active:scale-95"
+              class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-bold text-xs bg-rose-600/20 hover:bg-rose-600/40 text-rose-300 border border-rose-500/40 transition active:scale-95"
               title="Detener el proceso del juego"
             >
               <XCircle class="w-3.5 h-3.5" />
@@ -1292,14 +1278,14 @@
             onclick={handleLaunch}
             disabled={isLaunching || instances.length === 0}
             class="flex items-center gap-2 px-4 py-1.5 rounded-lg font-bold text-xs tracking-wide transition-all shadow-md bg-gradient-to-r from-emerald-500 to-teal-400 hover:brightness-110 text-obsidian-950 shadow-emerald-500/20 active:scale-95 disabled:opacity-50 ml-1"
-            title={currentInstance.executable_type === 'direct' ? 'Ejecutar cliente de forma nativa' : 'Arrancar instancia mediante lanzador'}
+            title={currentInstance.executable_type === 'direct' ? 'Ejecutar cliente de forma nativa' : 'Arrancar instancia'}
           >
             {#if isLaunching}
               <RotateCw class="w-3.5 h-3.5 animate-spin" />
               <span>{t('starting')}</span>
             {:else}
               <Play class="w-3.5 h-3.5 fill-current" />
-              <span>{currentInstance.executable_type === 'direct' ? 'Jugar Ahora' : 'Iniciar Instancia'}</span>
+              <span>Jugar Ahora</span>
             {/if}
           </button>
         {/if}
@@ -1540,67 +1526,65 @@
               {@const thisUsage = allRunningUsages.find(u => u.instance_id === inst.id)}
               {@const isDefault = inst.id === selectedInstanceId}
               
-              <div class="p-4 rounded-2xl bg-obsidian-900/60 border transition-all {isThisRunning ? 'border-emerald-500/60 shadow-lg shadow-emerald-500/10' : (isDefault ? 'border-omni-cyan shadow-md shadow-omni-cyan/10' : 'border-obsidian-750/70 hover:border-obsidian-600')} flex flex-col justify-between">
+              <div class="p-4 rounded-2xl bg-obsidian-900/60 border transition-all {isThisRunning ? 'border-emerald-500/60 shadow-lg shadow-emerald-500/10' : (isDefault ? 'border-omni-cyan/80 shadow-md shadow-omni-cyan/10' : 'border-obsidian-750/70 hover:border-obsidian-600')} flex flex-col justify-between">
                 <div>
                   <div class="flex items-start gap-3">
                     <img
                       src={`/minecraft-icons/${inst.icon || 'art-Crafting_Table.png'}`}
                       alt=""
-                      class="w-11 h-11 object-contain p-1.5 rounded-xl bg-obsidian-950 border border-obsidian-800 shrink-0"
+                      class="w-10 h-10 object-contain p-1 rounded-xl bg-obsidian-950 border border-obsidian-800 shrink-0"
                       onerror={(e) => { (e.currentTarget as HTMLImageElement).src = '/minecraft-icons/art-Crafting_Table.png'; }}
                     />
                     <div class="flex-1 min-w-0">
-                      <div class="flex items-center gap-1.5 flex-wrap">
-                        <h3 class="text-sm font-bold text-white truncate">{inst.name}</h3>
+                      <div class="flex items-center gap-1.5">
+                        <h3 class="text-sm font-bold text-white truncate max-w-[130px]">{inst.name}</h3>
                         {#if isDefault}
-                          <span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-omni-cyan/20 text-omni-cyan border border-omni-cyan/30">
+                          <span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-omni-cyan/20 text-omni-cyan border border-omni-cyan/30 shrink-0">
                             DEFAULT
                           </span>
                         {/if}
                         {#if isThisRunning}
-                          <span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1 animate-pulse">
+                          <span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1 shrink-0 animate-pulse">
                             <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> ACTIVA
                           </span>
                         {/if}
                       </div>
 
-                      <p class="text-[11px] text-slate-400 font-mono mt-0.5 flex items-center gap-1">
-                        <span>👤 {inst.assigned_username || 'Heredar activo'}</span>
-                        <span>•</span>
-                        <span>{inst.instance_type === 'server' ? '🖥️ Servidor' : '🎮 Cliente'}</span>
+                      <p class="text-[11px] text-slate-400 font-mono mt-0.5 truncate">
+                        👤 {inst.assigned_username || 'Heredar'} • {inst.instance_type === 'server' ? 'Servidor' : 'Cliente'}
                       </p>
                     </div>
                   </div>
 
                   <!-- Métricas y configuración de la tarjeta -->
-                  <div class="grid grid-cols-2 gap-2 mt-3.5 text-[11px]">
+                  <div class="grid grid-cols-2 gap-2 mt-3 text-[11px]">
                     <div class="p-2 rounded-lg bg-obsidian-950/60 border border-obsidian-800">
                       <span class="text-slate-400 block text-[10px]">Versión & Loader</span>
-                      <span class="font-bold text-white">{inst.mc_version} {inst.loader_type}</span>
+                      <span class="font-bold text-white truncate block">{inst.mc_version} {inst.loader_type}</span>
                     </div>
                     <div class="p-2 rounded-lg bg-obsidian-950/60 border border-obsidian-800">
-                      <span class="text-slate-400 block text-[10px]">Límites de RAM</span>
-                      <span class="font-bold text-emerald-400">{(inst.ram_min_mb / 1024).toFixed(1)}G - {(inst.ram_max_mb / 1024).toFixed(1)}G</span>
+                      <span class="text-slate-400 block text-[10px]">Memoria RAM</span>
+                      <span class="font-bold text-emerald-400 truncate block">{(inst.ram_min_mb / 1024).toFixed(1)}G - {(inst.ram_max_mb / 1024).toFixed(1)}G</span>
                     </div>
                   </div>
 
                   <!-- Estado en vivo si está corriendo -->
                   {#if isThisRunning && thisUsage}
                     <div class="mt-2.5 p-2 rounded-lg bg-emerald-950/30 border border-emerald-500/30 flex items-center justify-between text-[11px] font-mono text-emerald-300">
-                      <span>PID: {thisUsage.pid}</span>
-                      <span>CPU: {thisUsage.cpu_percent.toFixed(1)}%</span>
-                      <span>RAM: {thisUsage.ram_used_mb} MB</span>
+                      <span>PID {thisUsage.pid}</span>
+                      <span>CPU {thisUsage.cpu_percent.toFixed(1)}%</span>
+                      <span>{thisUsage.ram_used_mb} MB</span>
                     </div>
                   {:else}
                     <div class="mt-2 text-[10px] text-slate-500 flex items-center justify-between">
-                      <span>Motor: <strong class="text-slate-400">{inst.executable_type}</strong></span>
-                      <span>{inst.launcher_jar || 'Directo Nativo'}</span>
+                      <span class="truncate">Motor: <strong class="text-slate-400">{inst.executable_type}</strong></span>
+                      <span class="truncate">{inst.launcher_jar || 'Nativo Directo'}</span>
                     </div>
                   {/if}
                 </div>
 
                 <!-- Botones de Acción de Instancia -->
-                <div class="mt-4 pt-3 border-t border-obsidian-800 flex flex-col gap-2">
+                <div class="mt-3.5 pt-3 border-t border-obsidian-800 flex flex-col gap-2">
                   {#if inst.instance_type === 'server'}
                     <button
                       onclick={handleDownloadPaperServer}
@@ -1615,19 +1599,19 @@
                     </button>
                   {/if}
 
-                  <!-- Barra de acciones y ejecución individual -->
+                  <!-- Fila 1: Botones de Utilidad -->
                   <div class="flex items-center justify-between gap-2">
-                    <div class="flex items-center gap-1">
+                    <div class="flex items-center gap-1.5">
                       <button
                         onclick={() => handleOpenFolder(inst.folder)}
-                        class="p-2 rounded-lg bg-obsidian-800 hover:bg-obsidian-750 text-slate-300 transition"
+                        class="p-1.5 rounded-lg bg-obsidian-800 hover:bg-obsidian-750 text-slate-300 transition"
                         title="Abrir carpeta de la instancia"
                       >
                         <FolderOpen class="w-3.5 h-3.5 text-amber-400" />
                       </button>
                       <button
                         onclick={() => { selectedInstanceId = inst.id; instanceModalMode = 'edit'; isInstanceModalOpen = true; }}
-                        class="p-2 rounded-lg bg-obsidian-800 hover:bg-obsidian-750 text-slate-300 transition"
+                        class="p-1.5 rounded-lg bg-obsidian-800 hover:bg-obsidian-750 text-slate-300 transition"
                         title="Editar configuración"
                       >
                         <Edit3 class="w-3.5 h-3.5 text-omni-cyan" />
@@ -1635,48 +1619,48 @@
                       <button
                         onclick={() => handleDeleteInstance(inst.id)}
                         disabled={isThisRunning}
-                        class="p-2 rounded-lg bg-obsidian-800 hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition disabled:opacity-30"
+                        class="p-1.5 rounded-lg bg-obsidian-800 hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition disabled:opacity-30"
                         title="Eliminar instancia"
                       >
                         <Trash2 class="w-3.5 h-3.5" />
                       </button>
                     </div>
 
-                    <div class="flex items-center gap-1.5">
-                      <!-- Marcar como default para el navbar -->
-                      <button
-                        onclick={() => handleInstanceChange(inst.id)}
-                        class="px-2.5 py-1.5 rounded-lg text-xs font-semibold transition border {isDefault ? 'bg-omni-cyan/15 border-omni-cyan text-omni-cyan' : 'bg-obsidian-800/80 border-obsidian-750 text-slate-400 hover:text-white'}"
-                        title={isDefault ? 'Esta instancia ya es la predeterminada del navbar' : 'Establecer como instancia por defecto en el navbar'}
-                      >
-                        {isDefault ? '★ Default' : 'Definir Default'}
-                      </button>
+                    <!-- Botón Marcar Default -->
+                    <button
+                      onclick={() => handleInstanceChange(inst.id)}
+                      class="px-2 py-1 rounded-lg text-[11px] font-semibold transition border {isDefault ? 'bg-omni-cyan/15 border-omni-cyan text-omni-cyan' : 'bg-obsidian-800/80 border-obsidian-750 text-slate-400 hover:text-white'}"
+                      title={isDefault ? 'Esta instancia ya es la predeterminada del navbar' : 'Establecer como instancia por defecto en el navbar'}
+                    >
+                      {isDefault ? '★ Default' : 'Hacer Default'}
+                    </button>
+                  </div>
 
-                      <!-- Botón de Ejecutar o Detener individual -->
-                      {#if isThisRunning}
-                        <button
-                          onclick={() => handleTerminateById(inst.id)}
-                          class="px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-600/20 hover:bg-rose-600/40 text-rose-300 border border-rose-500/30 transition flex items-center gap-1"
-                        >
-                          <XCircle class="w-3.5 h-3.5" />
-                          <span>Detener</span>
-                        </button>
-                      {:else}
-                        <button
-                          onclick={() => handleLaunchInstance(inst.id)}
-                          disabled={launchingInstanceId === inst.id}
-                          class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-sm flex items-center gap-1.5 bg-gradient-to-r from-emerald-500 to-teal-400 text-obsidian-950 hover:brightness-110 active:scale-95 disabled:opacity-50"
-                        >
-                          {#if launchingInstanceId === inst.id}
-                            <RotateCw class="w-3.5 h-3.5 animate-spin" />
-                            <span>Iniciando...</span>
-                          {:else}
-                            <Play class="w-3.5 h-3.5 fill-current" />
-                            <span>Ejecutar</span>
-                          {/if}
-                        </button>
-                      {/if}
-                    </div>
+                  <!-- Fila 2: Botón de Ejecutar / Detener (Ancho completo, sin apretarse) -->
+                  <div>
+                    {#if isThisRunning}
+                      <button
+                        onclick={() => handleTerminateById(inst.id)}
+                        class="w-full py-1.5 rounded-lg text-xs font-bold bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 transition flex items-center justify-center gap-1.5"
+                      >
+                        <XCircle class="w-3.5 h-3.5" />
+                        <span>Detener Instancia</span>
+                      </button>
+                    {:else}
+                      <button
+                        onclick={() => handleLaunchInstance(inst.id)}
+                        disabled={launchingInstanceId === inst.id}
+                        class="w-full py-1.5 rounded-lg text-xs font-bold transition shadow-sm flex items-center justify-center gap-1.5 bg-gradient-to-r from-emerald-500 to-teal-400 text-obsidian-950 hover:brightness-110 active:scale-95 disabled:opacity-50"
+                      >
+                        {#if launchingInstanceId === inst.id}
+                          <RotateCw class="w-3.5 h-3.5 animate-spin" />
+                          <span>Iniciando...</span>
+                        {:else}
+                          <Play class="w-3.5 h-3.5 fill-current" />
+                          <span>Ejecutar Instancia</span>
+                        {/if}
+                      </button>
+                    {/if}
                   </div>
                 </div>
               </div>
@@ -2468,7 +2452,7 @@
               </div>
 
               <a
-                href="https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=thauksephiroth@gmail.com&lc=ES&item_name=Donacion+Omnicraft+Studio&currency_code=USD"
+                href="https://www.paypal.com/ncp/payment/KR4E3PNGJEXQY"
                 target="_blank"
                 rel="noreferrer"
                 class="px-4 py-2.5 rounded-xl bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white font-bold text-xs shadow-lg shadow-pink-600/25 flex items-center gap-2 transition transform active:scale-95 shrink-0"
@@ -2489,18 +2473,24 @@
 
             <div class="pt-3 border-t border-obsidian-800/80 flex flex-wrap items-center justify-between text-xs text-slate-400 gap-3">
               <div class="flex items-center gap-2">
-                <span class="text-slate-500">PayPal donaciones:</span>
-                <code class="px-2 py-0.5 rounded bg-obsidian-950 border border-obsidian-800 text-pink-400 font-mono select-all">
-                  thauksephiroth@gmail.com
-                </code>
+                <span class="text-slate-500">Donaciones Seguras:</span>
+                <a
+                  href="https://www.paypal.com/ncp/payment/KR4E3PNGJEXQY"
+                  target="_blank"
+                  rel="noreferrer"
+                  class="px-2.5 py-1 rounded bg-obsidian-950 border border-pink-500/30 text-pink-400 font-medium hover:bg-pink-950/30 flex items-center gap-1.5 transition"
+                >
+                  <Heart class="w-3 h-3 fill-pink-400" />
+                  <span>Pasarela Oficial PayPal</span>
+                </a>
               </div>
               <div class="flex items-center gap-2 text-slate-400 text-[11px]">
                 <span class="px-2 py-0.5 rounded bg-obsidian-800/90 border border-obsidian-700 text-slate-300 font-mono">Licencia CC BY-NC-SA 4.0</span>
                 <span>• Autor:</span>
                 <span class="font-bold text-slate-200">Karl Correa</span>
                 <span class="text-slate-600">•</span>
-                <a href="mailto:thauksephiroth@gmail.com" class="text-omni-indigo hover:underline flex items-center gap-1">
-                  <Mail class="w-3.5 h-3.5" /> Contactar
+                <a href="https://github.com/correakarl/omnicraft-studio" target="_blank" rel="noreferrer" class="text-omni-indigo hover:underline flex items-center gap-1">
+                  <Github class="w-3.5 h-3.5" /> GitHub
                 </a>
               </div>
             </div>
