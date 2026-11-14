@@ -237,6 +237,10 @@ impl DirectLaunchPlan {
             config.user_type.to_string(),
             "--versionType".to_string(),
             "release".to_string(),
+            "--clientId".to_string(),
+            "OmnicraftStudio".to_string(),
+            "--xuid".to_string(),
+            "0".to_string(),
         ];
 
         let width = if config.width > 0 { config.width } else { 1280 };

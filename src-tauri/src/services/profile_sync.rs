@@ -25,11 +25,15 @@ impl ProfileSyncService {
         username: &str,
         uuid: Option<&str>,
         access_token: Option<&str>,
+        skin_url: Option<&str>,
     ) -> Result<(), String> {
         fs::create_dir_all(mc_dir).map_err(|e| e.to_string())?;
 
         // Directorio raíz de la instancia (padre de .minecraft)
         let root_dir = mc_dir.parent().unwrap_or(mc_dir);
+
+        // 0. Sincronizar SkinShuffle si el mod o su configuración existen en la instancia
+        Self::sync_skinshuffle_config(mc_dir, username, uuid, skin_url);
 
         // 1. Resolver target version id exacto (si está fabric-loader-... o forge-... en versions/)
         let target_version_id = Self::resolve_version_id(mc_dir, mc_version, loader_type);
@@ -185,6 +189,146 @@ impl ProfileSyncService {
         Self::sync_fenix_config(root_dir, mc_dir, ram_max_mb, java_bin);
 
         Ok(())
+    }
+
+    /// Sincroniza la configuración de SkinShuffle (si está instalado en la instancia)
+    /// para que herede la skin oficial y el nombre de usuario de la sesión activa en vez de forzar a Steve ("Player").
+    fn sync_skinshuffle_config(
+        mc_dir: &Path,
+        username: &str,
+        uuid: Option<&str>,
+        skin_url: Option<&str>,
+    ) {
+        let ss_dir = mc_dir.join("config").join("skinshuffle");
+        let mods_dir = mc_dir.join("mods");
+        let has_skinshuffle_mod = fs::read_dir(&mods_dir)
+            .ok()
+            .map(|entries| {
+                entries.flatten().any(|e| {
+                    let name = e.file_name().to_string_lossy().to_lowercase();
+                    name.contains("skinshuffle") && name.ends_with(".jar")
+                })
+            })
+            .unwrap_or(false);
+
+        if !ss_dir.exists() && !has_skinshuffle_mod {
+            return;
+        }
+
+        fs::create_dir_all(&ss_dir).ok();
+
+        // 1. Asegurar que config.json tenga enableMultiAccountSupport: true y disableAPIUpload: true
+        // (evita que MineSkin falle con HTTP 504 y sobreescriba la skin de Mojang con Steve)
+        let cfg_path = ss_dir.join("config.json");
+        let mut cfg_val: Value = if cfg_path.exists() {
+            fs::read_to_string(&cfg_path)
+                .ok()
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .unwrap_or_else(|| json!({}))
+        } else {
+            json!({
+                "displayInPauseMenu": true,
+                "displayInTitleScreen": true,
+                "carouselScrollSensitivity": 1.0,
+                "invertCarouselScroll": false,
+                "widgetSkinRenderStyle": "CURSOR",
+                "carouselSkinRenderStyle": "ROTATION",
+                "presetEditScreenRenderStyle": "ROTATION",
+                "rotationMultiplier": 1.0,
+                "showCapeInPreview": true,
+                "carouselView": "COMPACT",
+                "welcomeGuideShown": true
+            })
+        };
+
+        cfg_val["enableMultiAccountSupport"] = json!(true);
+        cfg_val["disableAPIUpload"] = json!(true);
+        cfg_val["welcomeGuideShown"] = json!(true);
+        if let Ok(pretty) = serde_json::to_string_pretty(&cfg_val) {
+            fs::write(&cfg_path, pretty).ok();
+        }
+
+        // 2. Determinar el preset de skin adecuado para el jugador activo
+        let clean_uuid = uuid.unwrap_or("").replace('-', "");
+        let formatted_uuid = if clean_uuid.len() == 32 {
+            Some(format!(
+                "{}-{}-{}-{}-{}",
+                &clean_uuid[0..8],
+                &clean_uuid[8..12],
+                &clean_uuid[12..16],
+                &clean_uuid[16..20],
+                &clean_uuid[20..32]
+            ))
+        } else {
+            None
+        };
+
+        let skin_entry = if let Some(url) = skin_url.filter(|u| !u.trim().is_empty()) {
+            json!({
+                "url": url,
+                "model": "default",
+                "type": "skinshuffle:url"
+            })
+        } else if let Some(u_dashed) = &formatted_uuid {
+            json!({
+                "uuid": u_dashed,
+                "model": "default",
+                "type": "skinshuffle:uuid"
+            })
+        } else {
+            json!({
+                "username": username,
+                "model": "default",
+                "type": "skinshuffle:username"
+            })
+        };
+
+        let preset_payload = json!({
+            "chosenPreset": 0,
+            "apiPreset": 0,
+            "loadedPresets": [
+                {
+                    "skin": skin_entry,
+                    "name": username
+                }
+            ]
+        });
+
+        if let Ok(pretty_presets) = serde_json::to_string_pretty(&preset_payload) {
+            // Actualizar presets.json global y presets-<username>.json específico de la cuenta
+            let global_presets_path = ss_dir.join("presets.json");
+            let user_presets_path = ss_dir.join(format!("presets-{}.json", username));
+
+            // Si presets.json tenía el preset genérico "Player" o no existe, actualizarlo
+            let should_overwrite_global = if global_presets_path.exists() {
+                fs::read_to_string(&global_presets_path)
+                    .map(|s| s.contains("\"name\": \"Player\"") || s.contains("1078232318") || s.contains(&format!("\"name\": \"{}\"", username)))
+                    .unwrap_or(true)
+            } else {
+                true
+            };
+
+            if should_overwrite_global {
+                fs::write(&global_presets_path, &pretty_presets).ok();
+            }
+            fs::write(&user_presets_path, &pretty_presets).ok();
+        }
+
+        // 3. Limpiar caché corrupta de Steve (31f477eb1a7beee631c2ca64d06f8f68fa93a3386d04452ab27f43acdf1b60cb)
+        let caches_path = ss_dir.join("skin-caches.json");
+        if caches_path.exists() {
+            if let Ok(raw) = fs::read_to_string(&caches_path) {
+                if raw.contains("31f477eb1a7beee631c2ca64d06f8f68fa93a3386d04452ab27f43acdf1b60cb") {
+                    let clean_cache = json!({
+                        "uploaded": {},
+                        "downloaded": {}
+                    });
+                    if let Ok(p) = serde_json::to_string_pretty(&clean_cache) {
+                        fs::write(&caches_path, p).ok();
+                    }
+                }
+            }
+        }
     }
 
     /// Sincroniza configuraciones de ejecución de LauncherFenix

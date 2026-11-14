@@ -20,6 +20,7 @@ pub struct MicrosoftAccountSession {
     pub username: String,
     pub uuid: String,
     pub access_token: String,
+    pub refresh_token: Option<String>,
     pub skin_url: Option<String>,
 }
 
@@ -154,7 +155,76 @@ impl MicrosoftAuthService {
 
         let ms_access_token = data["access_token"].as_str()
             .ok_or_else(|| "No se recibió access_token de Microsoft".to_string())?;
+        let ms_refresh_token = data["refresh_token"].as_str().map(|s| s.to_string());
 
+        Self::exchange_ms_token_to_minecraft(&client, ms_access_token, ms_refresh_token).await
+    }
+
+    /// Renueva una sesión oficial de Microsoft usando su refresh_token para mantener la sesión siempre activa
+    pub async fn refresh_microsoft_session(refresh_token: &str) -> Result<MicrosoftAccountSession, String> {
+        let client = reqwest::Client::builder()
+            .user_agent(Self::USER_AGENT)
+            .build()
+            .map_err(|e| e.to_string())?;
+
+        let params = [
+            ("client_id", Self::CLIENT_ID),
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token),
+            ("scope", "XboxLive.signin offline_access"),
+        ];
+
+        let resp = client
+            .post("https://login.microsoftonline.com/consumers/oauth2/v2.0/token")
+            .form(&params)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if !resp.status().is_success() {
+            let err_txt = resp.text().await.unwrap_or_default();
+            return Err(format!("Error renovando sesión Microsoft: {}", err_txt));
+        }
+
+        let data: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+        let ms_access_token = data["access_token"].as_str()
+            .ok_or_else(|| "No se recibió nuevo access_token de Microsoft".to_string())?;
+        let new_refresh_token = data["refresh_token"].as_str()
+            .map(|s| s.to_string())
+            .or_else(|| Some(refresh_token.to_string()));
+
+        Self::exchange_ms_token_to_minecraft(&client, ms_access_token, new_refresh_token).await
+    }
+
+    /// Valida si el token de Minecraft sigue activo consultando el perfil; retorna true si es válido
+    pub async fn is_minecraft_token_valid(mc_access_token: &str) -> bool {
+        if mc_access_token.is_empty() || mc_access_token == "0" {
+            return false;
+        }
+        let Ok(client) = reqwest::Client::builder()
+            .user_agent(Self::USER_AGENT)
+            .timeout(std::time::Duration::from_secs(6))
+            .build()
+        else {
+            return true;
+        };
+
+        match client
+            .get("https://api.minecraftservices.com/minecraft/profile")
+            .bearer_auth(mc_access_token)
+            .send()
+            .await
+        {
+            Ok(resp) => resp.status().is_success(),
+            Err(_) => true, // En caso de corte temporal de red, no invalidar el token
+        }
+    }
+
+    async fn exchange_ms_token_to_minecraft(
+        client: &reqwest::Client,
+        ms_access_token: &str,
+        ms_refresh_token: Option<String>,
+    ) -> Result<MicrosoftAccountSession, String> {
         // 1. Intercambiar MS token por Xbox Live (XBL)
         let xbl_payload = serde_json::json!({
             "Properties": {
@@ -257,6 +327,7 @@ impl MicrosoftAuthService {
             username,
             uuid: raw_uuid,
             access_token: mc_access_token.to_string(),
+            refresh_token: ms_refresh_token,
             skin_url,
         })
     }

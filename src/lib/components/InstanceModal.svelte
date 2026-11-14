@@ -1,11 +1,13 @@
 <script lang="ts">
   import { X, Check, FolderOpen, Image as ImageIcon, Cpu, Terminal, Shield, Filter } from 'lucide-svelte';
-  import type { InstanceModel, JavaRuntime, GameVersionEntry } from '../types';
+  import type { InstanceModel, AccountModel, JavaRuntime, GameVersionEntry } from '../types';
 
   let {
     isOpen = false,
     mode = 'create',
     instance = null as InstanceModel | null,
+    accounts = [] as AccountModel[],
+    isDefaultInstance = false,
     availableIcons = [] as string[],
     launchers = [] as string[],
     javas = [] as JavaRuntime[],
@@ -17,6 +19,8 @@
     isOpen: boolean;
     mode: 'create' | 'edit';
     instance?: InstanceModel | null;
+    accounts?: AccountModel[];
+    isDefaultInstance?: boolean;
     availableIcons: string[];
     launchers: string[];
     javas: JavaRuntime[];
@@ -253,22 +257,59 @@
         </div>
 
         <!-- Usuario / Jugador Asignado a esta Instancia -->
-        <div class="p-3 bg-obsidian-950/60 border border-obsidian-800 rounded-xl">
-          <div class="flex items-center justify-between mb-1.5">
+        <div class="p-3 bg-obsidian-950/60 border border-obsidian-800 rounded-xl space-y-2">
+          <div class="flex items-center justify-between">
             <label class="text-slate-300 font-bold flex items-center gap-1.5">
               <span>👤</span>
-              <span>Nombre de Usuario / Jugador en esta Instancia</span>
+              <span>Cuenta de Jugador vinculada a esta Instancia</span>
             </label>
-            <span class="text-[10px] text-slate-500 font-mono">Multi-instancia independiente</span>
+            <span class="text-[10px] px-2 py-0.5 rounded font-mono {isDefaultInstance ? 'bg-omni-cyan/15 text-omni-cyan border border-omni-cyan/30' : 'bg-obsidian-800 text-slate-400'}">
+              {isDefaultInstance ? '★ Instancia por Default' : 'Instancia Secundaria (Offline)'}
+            </span>
           </div>
-          <input
-            type="text"
-            bind:value={assignedUsername}
-            placeholder="Ej: Player_Prueba (dejar vacío para heredar cuenta activa)"
-            class="w-full bg-obsidian-900 border border-obsidian-700 rounded-lg px-3 py-1.5 text-white focus:outline-none focus:border-omni-cyan font-mono text-xs"
-          />
-          <p class="text-[10px] text-slate-400 mt-1">
-            Permite abrir múltiples instancias en paralelo sin colisión de nombres. Si una instancia usa cuenta Microsoft oficial, las demás deben tener su propio usuario offline asignado.
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <div>
+              <span class="text-[10px] text-slate-400 block mb-1">Selección rápida de cuenta:</span>
+              <select
+                value={assignedUsername}
+                onchange={(e) => assignedUsername = e.currentTarget.value}
+                class="w-full bg-obsidian-900 border border-obsidian-700 rounded-lg px-2.5 py-1.5 text-white focus:outline-none focus:border-omni-cyan text-xs cursor-pointer"
+              >
+                {#if isDefaultInstance || mode === 'create'}
+                  <option value="">
+                    ★ Automático (Sincronizar con Cuenta por Default: {accounts.find(a => a.active)?.username || 'Activa'})
+                  </option>
+                {:else}
+                  <option value="">
+                    ⚡ Automático (Usar cuenta Non-Premium sin seleccionar: {accounts.find(a => a.account_type !== 'microsoft' && !a.active)?.username || accounts.find(a => a.account_type !== 'microsoft')?.username || `Player_${name || 'Instancia'}`})
+                  </option>
+                {/if}
+                {#each accounts.filter(a => a.account_type !== 'microsoft') as acc}
+                  <option value={acc.username}>
+                    🔓 {acc.username} (Non-Premium {acc.active ? '• Default' : '• Libre'})
+                  </option>
+                {/each}
+              </select>
+            </div>
+
+            <div>
+              <span class="text-[10px] text-slate-400 block mb-1">O escribir alias Non-Premium personalizado:</span>
+              <input
+                type="text"
+                bind:value={assignedUsername}
+                placeholder={isDefaultInstance ? "Vacío = Cuenta Default activa" : "Vacío = Auto Non-Premium libre"}
+                class="w-full bg-obsidian-900 border border-obsidian-700 rounded-lg px-3 py-1.5 text-white focus:outline-none focus:border-omni-cyan font-mono text-xs"
+              />
+            </div>
+          </div>
+
+          <p class="text-[10px] text-slate-400">
+            {#if isDefaultInstance}
+              Al ser la <strong class="text-omni-cyan">Instancia por Default</strong>, iniciará en sincronía con tu cuenta principal seleccionada (incluyendo tu cuenta oficial <strong class="text-emerald-400">Microsoft</strong>).
+            {:else}
+              Las instancias secundarias solo admiten cuentas <strong class="text-amber-300">Non-Premium (Offline)</strong>. La cuenta oficial Microsoft está reservada exclusivamente para la instancia seleccionada por Default.
+            {/if}
           </p>
         </div>
 

@@ -172,8 +172,14 @@
       currentLang = await i18n.init();
       coreStatus = await invoke<string>('status');
       instances = await invoke<InstanceModel[]>('get_instances');
+      const savedDefId = await invoke<string | null>('get_default_instance_id').catch(() => null);
       if (instances.length > 0 && !selectedInstanceId) {
-        selectedInstanceId = instances[0].id;
+        if (savedDefId && instances.some(i => i.id === savedDefId)) {
+          selectedInstanceId = savedDefId;
+        } else {
+          selectedInstanceId = instances[0].id;
+          await invoke('set_default_instance_id', { instanceId: selectedInstanceId }).catch(() => {});
+        }
       }
       accounts = await invoke<AccountModel[]>('get_accounts');
       javas = await invoke<JavaRuntime[]>('detect_javas');
@@ -724,6 +730,7 @@
 
   async function handleInstanceChange(newInstanceId: string) {
     selectedInstanceId = newInstanceId;
+    await invoke('set_default_instance_id', { instanceId: newInstanceId }).catch(() => {});
     const targetInst = instances.find(i => i.id === newInstanceId);
     if (targetInst) {
       await loadModsForInstance(targetInst.id);
@@ -732,6 +739,54 @@
       if (activeTab === 'store') {
         doSearchStore();
       }
+    }
+  }
+
+  // Resuelve qué cuenta usará una instancia según si es Default o Secundaria
+  function getEffectiveAccountLabel(inst: InstanceModel): { username: string; isMsa: boolean; modeLabel: string } {
+    const isDef = inst.id === selectedInstanceId;
+    const autoPlaceholder = `Player_${inst.name.replace(/\s+/g, '_')}`;
+    const customUser = inst.assigned_username?.trim();
+    const hasCustom = !!customUser && customUser.toLowerCase() !== autoPlaceholder.toLowerCase();
+
+    if (isDef) {
+      if (hasCustom) {
+        const acc = accounts.find(a => a.username.toLowerCase() === customUser.toLowerCase());
+        const msa = acc?.account_type === 'microsoft';
+        return { username: customUser, isMsa: !!msa, modeLabel: msa ? 'Microsoft Oficial' : 'Asignada (Offline)' };
+      }
+      const msa = activeAccount.account_type === 'microsoft';
+      return {
+        username: activeAccount.username,
+        isMsa: msa,
+        modeLabel: msa ? '★ Sync Microsoft Default' : '★ Sync Cuenta Default'
+      };
+    } else {
+      // Instancia Secundaria: Solo cuentas Non-Premium
+      if (hasCustom) {
+        const acc = accounts.find(a => a.username.toLowerCase() === customUser.toLowerCase());
+        if (acc?.account_type !== 'microsoft') {
+          return { username: customUser, isMsa: false, modeLabel: 'Asignada (Offline)' };
+        }
+      }
+      const unselectedOffline = accounts.find(a => a.account_type !== 'microsoft' && !a.active)
+        || accounts.find(a => a.account_type !== 'microsoft');
+      if (unselectedOffline) {
+        return { username: unselectedOffline.username, isMsa: false, modeLabel: 'Auto Non-Premium' };
+      }
+      return { username: autoPlaceholder, isMsa: false, modeLabel: 'Auto Offline' };
+    }
+  }
+
+  async function handleQuickAssignAccount(instId: string, newAssigned: string) {
+    try {
+      await invoke('assign_instance_account_cmd', {
+        instanceId: instId,
+        assignedUsername: newAssigned.trim() || null
+      });
+      instances = await invoke<InstanceModel[]>('get_instances');
+    } catch (e) {
+      alert(`Error al asignar cuenta a la instancia: ${e}`);
     }
   }
 
@@ -1182,6 +1237,11 @@
             <span class="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-mono font-medium">
               {currentInstance.mc_version}
             </span>
+
+            <span class="text-[10px] px-2 py-0.2 rounded bg-omni-indigo/20 text-omni-lavender border border-omni-indigo/30 font-mono flex items-center gap-1" title="Cuenta sincronizada con la Instancia por Default">
+              <span>👤</span>
+              <span>{getEffectiveAccountLabel(currentInstance).username}</span>
+            </span>
           </div>
 
           <div class="flex items-center gap-1">
@@ -1559,10 +1619,49 @@
                       </div>
 
                       <p class="text-[11px] text-slate-400 font-mono mt-0.5 truncate">
-                        👤 {inst.assigned_username || 'Heredar'} • {inst.instance_type === 'server' ? 'Servidor' : 'Cliente'}
+                        {#if isDefault}
+                          <span class="text-emerald-400 font-semibold">★ Sync: {getEffectiveAccountLabel(inst).username}</span>
+                        {:else}
+                          <span class="text-amber-300">🔓 Offline: {getEffectiveAccountLabel(inst).username}</span>
+                        {/if}
+                        • {inst.instance_type === 'server' ? 'Servidor' : 'Cliente'}
                       </p>
                     </div>
                   </div>
+
+                  <!-- Selector rápido de cuenta por instancia -->
+                  {#if inst.instance_type !== 'server'}
+                    <div class="mt-2.5 p-2 rounded-xl bg-obsidian-950/75 border {isDefault ? 'border-omni-cyan/30' : 'border-obsidian-800'}">
+                      <div class="flex items-center justify-between text-[10px] mb-1">
+                        <span class="text-slate-400 font-semibold flex items-center gap-1">
+                          <span>👤</span> Cuenta de Inicio:
+                        </span>
+                        <span class="font-mono px-1.5 py-0.2 rounded {getEffectiveAccountLabel(inst).isMsa ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-obsidian-800 text-slate-300'}">
+                          {getEffectiveAccountLabel(inst).modeLabel}
+                        </span>
+                      </div>
+                      <select
+                        value={inst.assigned_username || ''}
+                        onchange={(e) => handleQuickAssignAccount(inst.id, e.currentTarget.value)}
+                        class="w-full bg-obsidian-900 border border-obsidian-750 rounded-lg px-2 py-1 text-[11px] font-medium text-white focus:outline-none focus:border-omni-cyan cursor-pointer"
+                      >
+                        {#if isDefault}
+                          <option value="">
+                            ★ Sincronizar con Cuenta Default ({activeAccount.username} - {activeAccount.account_type === 'microsoft' ? 'Microsoft Oficial' : 'Non-Premium'})
+                          </option>
+                        {:else}
+                          <option value="">
+                            ⚡ Auto Non-Premium Libre ({accounts.find(a => a.account_type !== 'microsoft' && !a.active)?.username || accounts.find(a => a.account_type !== 'microsoft')?.username || `Player_${inst.name}`})
+                          </option>
+                        {/if}
+                        {#each accounts.filter(a => a.account_type !== 'microsoft') as acc}
+                          <option value={acc.username}>
+                            🔓 {acc.username} (Non-Premium {acc.active ? '• Seleccionada' : '• Sin seleccionar'})
+                          </option>
+                        {/each}
+                      </select>
+                    </div>
+                  {/if}
 
                   <!-- Métricas y configuración de la tarjeta -->
                   <div class="grid grid-cols-2 gap-2 mt-3 text-[11px]">
@@ -2516,6 +2615,8 @@
   isOpen={isInstanceModalOpen}
   mode={instanceModalMode}
   instance={instanceModalMode === 'edit' ? currentInstance : null}
+  {accounts}
+  isDefaultInstance={instanceModalMode === 'create' ? instances.length === 0 : currentInstance?.id === selectedInstanceId}
   {availableIcons}
   {launchers}
   {javas}

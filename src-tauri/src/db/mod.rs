@@ -159,6 +159,11 @@ impl DbManager {
     }
 
     pub fn get_active_account_credentials(&self, username: &str) -> Option<(String, String)> {
+        self.get_account_full_credentials(username).map(|(u, tok, _ref, _skin)| (u, tok))
+    }
+
+    /// Retorna (uuid, access_token, refresh_token, skin_url) de la cuenta solicitada
+    pub fn get_account_full_credentials(&self, username: &str) -> Option<(String, String, Option<String>, Option<String>)> {
         let conn = self.get_connection().ok()?;
         let mut stmt = conn.prepare(
             "SELECT data_json, uuid FROM accounts WHERE (username = ?1 OR id = ?1) ORDER BY (data_json IS NOT NULL AND data_json != '') DESC, active DESC LIMIT 1"
@@ -200,7 +205,14 @@ impl DbManager {
                         .or(db_uuid.as_deref())
                         .unwrap_or("00000000-0000-0000-0000-000000000000");
 
-                    return Some((uuid_str.to_string(), resolved_token));
+                    let refresh_token = val["refresh_token"].as_str()
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.to_string());
+                    let skin_url = val["skin_url"].as_str()
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.to_string());
+
+                    return Some((uuid_str.to_string(), resolved_token, refresh_token, skin_url));
                 }
             }
         }
@@ -402,11 +414,23 @@ impl DbManager {
         Ok(())
     }
 
-    pub fn save_microsoft_account(&self, username: &str, uuid: &str, access_token: &str, skin_url: Option<&str>) -> Result<()> {
+    pub fn save_microsoft_account(
+        &self,
+        username: &str,
+        uuid: &str,
+        access_token: &str,
+        refresh_token: Option<&str>,
+        skin_url: Option<&str>,
+    ) -> Result<()> {
         let conn = self.get_connection()?;
         conn.execute("UPDATE accounts SET active = 0", [])?;
 
         let user_id = format!("msa-{}", uuid);
+        // Preservar refresh_token previo si el nuevo es None
+        let existing_refresh = self.get_account_full_credentials(username)
+            .and_then(|(_, _, r, _)| r);
+        let final_refresh = refresh_token.or(existing_refresh.as_deref()).unwrap_or("");
+
         let data_json = serde_json::json!({
             "id": user_id,
             "username": username,
@@ -414,6 +438,7 @@ impl DbManager {
             "uuid": uuid,
             "token": access_token,
             "enc_token": access_token,
+            "refresh_token": final_refresh,
             "skin_url": skin_url.unwrap_or("")
         }).to_string();
 

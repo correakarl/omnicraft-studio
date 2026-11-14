@@ -320,25 +320,46 @@ fn sync_instance_profile(
         &username,
         uuid.as_deref(),
         access_token.as_deref(),
+        None,
     )
 }
 
 #[tauri::command]
-fn launch_instance_cmd(
+fn get_default_instance_id(state: State<AppState>) -> Option<String> {
+    state.db.get_setting("default_instance_id").ok().flatten()
+}
+
+#[tauri::command]
+fn set_default_instance_id(instance_id: String, state: State<AppState>) -> Result<(), String> {
+    state.db.set_setting("default_instance_id", &instance_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn launch_instance_cmd(
     instance_id: String,
     username: String,
     uuid: Option<String>,
-    state: State<AppState>,
+    state: State<'_, AppState>,
 ) -> Result<u32, String> {
     let instances = state.db.get_all_instances().map_err(|e| e.to_string())?;
     let inst = instances
-        .into_iter()
+        .iter()
         .find(|i| i.id == instance_id)
+        .cloned()
         .ok_or_else(|| format!("Instancia '{}' no encontrada", instance_id))?;
 
-    // Determinar usuario efectivo:
-    // Si assigned_username fue el placeholder autogenerado ("Player_<NombreInstancia>"),
-    // tratarlo como herencia automática de la cuenta activa en lugar de forzar modo offline.
+    // Determinar cuál es la Instancia Principal (Default)
+    let saved_default_id = state.db.get_setting("default_instance_id").ok().flatten();
+    let default_inst_id = saved_default_id
+        .filter(|did| instances.iter().any(|i| &i.id == did))
+        .or_else(|| instances.first().map(|i| i.id.clone()))
+        .unwrap_or_else(|| inst.id.clone());
+
+    let is_default_instance = inst.id == default_inst_id;
+
+    let accounts = state.db.get_accounts().unwrap_or_default();
+    let active_account = accounts.iter().find(|a| a.active).or_else(|| accounts.first());
+
     let auto_placeholder = format!("Player_{}", inst.name.replace(' ', "_"));
     let has_custom_assigned = inst.assigned_username.as_ref()
         .map(|u| {
@@ -347,13 +368,95 @@ fn launch_instance_cmd(
         })
         .unwrap_or(false);
 
-    let effective_username = if has_custom_assigned {
-        inst.assigned_username.clone().unwrap()
-    } else if !username.trim().is_empty() {
-        username
+    // REGLA DE SINCRONIZACIÓN DE CUENTAS E INSTANCIAS:
+    // 1. La Instancia por Default arranca en sincronía con la Cuenta Principal por Default (salvo que tenga una cuenta offline asignada explícitamente).
+    // 2. La Cuenta Oficial Microsoft SOLO puede iniciar sobre la Instancia por Default seleccionada.
+    // 3. Las demás instancias secundarias utilizan automáticamente cuentas Non-Premium (su cuenta asignada, o una cuenta Non-Premium sin seleccionar de la lista, o Player_<Instancia>).
+    let (effective_username, matched_account) = if is_default_instance {
+        if has_custom_assigned {
+            let custom_u = inst.assigned_username.clone().unwrap();
+            let acc = accounts.iter().find(|a| a.username.eq_ignore_ascii_case(&custom_u)).cloned();
+            (custom_u, acc)
+        } else if let Some(act) = active_account {
+            (act.username.clone(), Some(act.clone()))
+        } else if !username.trim().is_empty() {
+            let acc = accounts.iter().find(|a| a.username.eq_ignore_ascii_case(&username)).cloned();
+            (username, acc)
+        } else {
+            (auto_placeholder, None)
+        }
     } else {
-        auto_placeholder
+        // Instancia secundaria (No-Default): SOLO permite cuentas Non-Premium (Offline)
+        if has_custom_assigned {
+            let custom_u = inst.assigned_username.clone().unwrap();
+            let acc = accounts.iter().find(|a| a.username.eq_ignore_ascii_case(&custom_u)).cloned();
+            // Si el nombre asignado corresponde a una cuenta Microsoft, redirigir a cuenta offline
+            if acc.as_ref().map(|a| a.account_type == "microsoft").unwrap_or(false) {
+                let fallback_offline = accounts.iter().find(|a| a.account_type != "microsoft" && !a.active)
+                    .or_else(|| accounts.iter().find(|a| a.account_type != "microsoft"))
+                    .cloned();
+                if let Some(off) = fallback_offline {
+                    (off.username.clone(), Some(off))
+                } else {
+                    (auto_placeholder, None)
+                }
+            } else {
+                (custom_u, acc)
+            }
+        } else {
+            // Buscar primero una cuenta Non-Premium sin seleccionar (active == false)
+            let unselected_offline = accounts.iter()
+                .find(|a| a.account_type != "microsoft" && !a.active)
+                .or_else(|| accounts.iter().find(|a| a.account_type != "microsoft"))
+                .cloned();
+            if let Some(off) = unselected_offline {
+                (off.username.clone(), Some(off))
+            } else {
+                (auto_placeholder, None)
+            }
+        }
     };
+
+    let is_msa = matched_account.as_ref().map(|a| a.account_type == "microsoft").unwrap_or(false);
+
+    // Doble verificación estricta: Cuenta Microsoft solo en instancia Default y una sola instancia a la vez
+    if is_msa && !is_default_instance {
+        return Err("La cuenta oficial Microsoft solo puede iniciar sobre la instancia seleccionada por Default. Establece esta instancia como Default o usa una cuenta Non-Premium.".to_string());
+    }
+    if is_msa && state.engine.is_msa_in_use() {
+        return Err("La cuenta oficial Microsoft ya se encuentra en ejecución en la instancia principal. Las instancias adicionales deben ejecutarse con cuentas Non-Premium.".to_string());
+    }
+
+    let user_type = if is_msa { "msa" } else { "legacy" };
+
+    // Si es Microsoft, verificar validez del token y renovarlo con refresh_token si expiró
+    let (resolved_uuid, resolved_token, resolved_skin_url) = if is_msa {
+        if let Some((mut u, mut tok, ref_tok, mut skin_url)) = state.db.get_account_full_credentials(&effective_username) {
+            if !MicrosoftAuthService::is_minecraft_token_valid(&tok).await {
+                if let Some(rt) = ref_tok.as_deref() {
+                    if let Ok(refreshed) = MicrosoftAuthService::refresh_microsoft_session(rt).await {
+                        let _ = state.db.save_microsoft_account(
+                            &refreshed.username,
+                            &refreshed.uuid,
+                            &refreshed.access_token,
+                            refreshed.refresh_token.as_deref(),
+                            refreshed.skin_url.as_deref(),
+                        );
+                        u = refreshed.uuid;
+                        tok = refreshed.access_token;
+                        skin_url = refreshed.skin_url;
+                    }
+                }
+            }
+            (Some(u), Some(tok), skin_url)
+        } else {
+            (matched_account.as_ref().and_then(|a| a.uuid.clone()), None, None)
+        }
+    } else {
+        (matched_account.as_ref().and_then(|a| a.uuid.clone()), None, None)
+    };
+
+    let player_uuid = resolved_uuid.as_deref().or(uuid.as_deref());
 
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     let mut root_path = PathBuf::from(&home);
@@ -369,7 +472,6 @@ fn launch_instance_cmd(
     let java_bin = if inst.java_selection_mode == "custom" && inst.custom_java_path.is_some() {
         inst.custom_java_path.clone().unwrap()
     } else {
-        // En modo auto, buscar Java 21/25 para MC >= 1.20.5, Java 17 para 1.18-1.20.4, o Java 8 para versiones antiguas
         let preferred_version: u32 = if inst.mc_version.starts_with("1.16") || inst.mc_version.starts_with("1.12") || inst.mc_version.starts_with("1.8") || inst.mc_version.starts_with("1.7") {
             8
         } else if inst.mc_version.starts_with("1.17") || inst.mc_version.starts_with("1.18") || inst.mc_version.starts_with("1.19") || inst.mc_version.starts_with("1.20.1") || inst.mc_version.starts_with("1.20.2") || inst.mc_version.starts_with("1.20.4") {
@@ -378,14 +480,12 @@ fn launch_instance_cmd(
             21 // MC 1.20.5+ y launchers modernos
         };
 
-        // Buscar primero una versión exacta o superior compatible
         javas.iter()
             .find(|j| j.version == preferred_version)
             .or_else(|| javas.iter().find(|j| j.version >= 17))
             .or_else(|| javas.first())
             .map(|j| j.path.clone())
             .unwrap_or_else(|| {
-                // Fallback seguro a rutas locales
                 let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
                 let local_java = PathBuf::from(&home).join(".local/bin/java");
                 if local_java.exists() {
@@ -396,34 +496,7 @@ fn launch_instance_cmd(
             })
     };
 
-    // Iniciar el proceso del juego / lanzador
-    // Resolver cuenta activa para el motor directo (identificar si es Microsoft o Free)
-    let accounts = state.db.get_accounts().unwrap_or_default();
-    let matched_account = accounts.iter().find(|a| a.username == effective_username || (!has_custom_assigned && a.active));
-    let is_msa = matched_account.map(|a| a.account_type == "microsoft").unwrap_or(false);
-
-    // RESTRICCIÓN DE SEGURIDAD MULTI-INSTANCIA:
-    // Si la cuenta es oficial Microsoft, solo puede estar activa en una sola instancia a la vez
-    if is_msa && state.engine.is_msa_in_use() {
-        return Err("La cuenta oficial Microsoft ya se encuentra en ejecución en otra instancia activa. Para ejecutar múltiples instancias simultáneamente en paralelo, asigna o utiliza un nombre de usuario independiente / offline para esta instancia.".to_string());
-    }
-
-    let user_type = if is_msa { "msa" } else { "legacy" };
-
-    // Si es Microsoft, resolver credenciales/tokens para iniciar la sesión auténtica en Mojang
-    let (resolved_uuid, resolved_token) = if is_msa {
-        if let Some((u, tok)) = state.db.get_active_account_credentials(&effective_username) {
-            (Some(u), Some(tok))
-        } else {
-            (matched_account.and_then(|a| a.uuid.clone()), None)
-        }
-    } else {
-        (matched_account.and_then(|a| a.uuid.clone()), None)
-    };
-
-    let player_uuid = resolved_uuid.as_deref().or(uuid.as_deref());
-
-    // Sincronizar perfiles técnicos en launcher_profiles.json y .hmcl (Java, RAM, loader, MC version, cuenta)
+    // Sincronizar perfiles técnicos en launcher_profiles.json, .hmcl y SkinShuffle (Java, RAM, loader, MC version, cuenta y skin)
     if inst.instance_type == "client" {
         ProfileSyncService::sync_instance_profile(
             &inst.name,
@@ -440,6 +513,7 @@ fn launch_instance_cmd(
             &effective_username,
             player_uuid,
             resolved_token.as_deref(),
+            resolved_skin_url.as_deref(),
         )?;
     } else {
         // Preparar servidor si aplica
@@ -1101,9 +1175,33 @@ async fn start_ms_auth_flow() -> Result<MicrosoftDeviceCodeResponse, String> {
 #[tauri::command]
 async fn poll_ms_auth_token(device_code: String, state: State<'_, AppState>) -> Result<MicrosoftAccountSession, String> {
     let session = MicrosoftAuthService::poll_device_token(&device_code).await?;
-    state.db.save_microsoft_account(&session.username, &session.uuid, &session.access_token, session.skin_url.as_deref())
+    state.db.save_microsoft_account(
+        &session.username,
+        &session.uuid,
+        &session.access_token,
+        session.refresh_token.as_deref(),
+        session.skin_url.as_deref(),
+    )
         .map_err(|e| format!("Error guardando sesión de Microsoft en BD: {}", e))?;
     Ok(session)
+}
+
+#[tauri::command]
+fn assign_instance_account_cmd(
+    instance_id: String,
+    assigned_username: Option<String>,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let conn = state.db.get_connection().map_err(|e| e.to_string())?;
+    let clean_user = assigned_username.and_then(|u| {
+        let t = u.trim().to_string();
+        if t.is_empty() { None } else { Some(t) }
+    });
+    conn.execute(
+        "UPDATE instances SET assigned_username = ?1 WHERE id = ?2",
+        rusqlite::params![clean_user, instance_id],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 fn main() {
@@ -1244,6 +1342,9 @@ fn main() {
             install_temurin_jre_cmd,
             start_ms_auth_flow,
             poll_ms_auth_token,
+            assign_instance_account_cmd,
+            get_default_instance_id,
+            set_default_instance_id,
             check_instance_compatibility,
             list_shared_cache_items,
             link_shared_item_to_instance
