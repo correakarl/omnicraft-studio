@@ -507,11 +507,12 @@ async fn install_mod_to_instance(
 
     let filename = if source == "CurseForge" {
         let cf_key = state.db.get_setting("curseforge_api_key").ok().flatten();
-        CurseForgeService::download_mod(
+        CurseForgeService::download_item(
             &project_id,
             &mc_version,
             &loader,
             &dest,
+            subfolder,
             cf_key.as_deref(),
         ).await?
     } else {
@@ -524,17 +525,19 @@ async fn install_mod_to_instance(
         ).await?
     };
 
-    // Si es un modpack (.mrpack), desempaquetar configs y descargar todos los mods automáticamente
-    if is_modpack && filename.ends_with(".mrpack") {
-        let mrpack_path = dest.join(&filename);
+    // Si es un modpack (.mrpack de Modrinth o .zip de CurseForge), desempaquetar configs y descargar todos los mods automáticamente
+    if is_modpack && (filename.ends_with(".mrpack") || filename.ends_with(".zip")) {
+        let pack_path = dest.join(&filename);
         let app_handle = app.clone();
         let tid = task_id.clone();
-        
-        let pack_name = ModpackInstallerService::install_mrpack(&mrpack_path, &mc_dir, move |p| {
+        let src_name = source.clone();
+        let cf_key = state.db.get_setting("curseforge_api_key").ok().flatten();
+
+        let pack_name = ModpackInstallerService::install_modpack_auto(&pack_path, &mc_dir, cf_key.as_deref(), move |p| {
             let _ = app_handle.emit("download-event", serde_json::json!({
                 "id": tid,
                 "title": format!("Instalando Modpack: {}", p.current_file),
-                "source": "Modrinth",
+                "source": src_name,
                 "status": p.step,
                 "progress": p.percent,
                 "completed": p.percent >= 100.0,

@@ -43,10 +43,13 @@ impl ModrinthDownloadService {
                 gv.map(|arr| arr.iter().any(|val| val.as_str() == Some(mc_version))).unwrap_or(false)
             };
 
-            let loader_matches = if ldr_clean.is_empty() || ldr_clean == "todos" || ldr_clean == "vanilla" {
+            let loader_matches = if ldr_clean.is_empty() || ldr_clean == "todos" || ldr_clean == "vanilla" || category == "modpacks" {
                 true
             } else {
-                ld.map(|arr| arr.iter().any(|val| val.as_str().map(|s| s.to_lowercase()) == Some(ldr_clean.clone()))).unwrap_or(false)
+                ld.map(|arr| arr.iter().any(|val| {
+                    let s = val.as_str().map(|s| s.to_lowercase()).unwrap_or_default();
+                    s == ldr_clean || (ldr_clean == "quilt" && s == "fabric") || (ldr_clean == "neoforge" && s == "forge")
+                })).unwrap_or(false)
             };
 
             if mc_matches && loader_matches {
@@ -55,9 +58,45 @@ impl ModrinthDownloadService {
             }
         }
 
-        let selected = target_ver.unwrap_or(&versions[0]);
+        // Si no hubo coincidencia exacta con versión y loader, intentar coincidir al menos la versión de Minecraft
+        if target_ver.is_none() && !mc_version.is_empty() && mc_version != "Todas" {
+            for v in &versions {
+                let gv = v.get("game_versions").and_then(|a| a.as_array());
+                if gv.map(|arr| arr.iter().any(|val| val.as_str() == Some(mc_version))).unwrap_or(false) {
+                    target_ver = Some(v);
+                    break;
+                }
+            }
+        }
+
+        let selected = match target_ver {
+            Some(v) => v,
+            None => {
+                // Si el usuario especificó una versión o loader específico y no existe absolutamente ninguna versión compatible:
+                if (!mc_version.is_empty() && mc_version != "Todas") || (!ldr_clean.is_empty() && ldr_clean != "todos" && ldr_clean != "vanilla") {
+                    return Err(format!(
+                        "Incompatibilidad en Modrinth: No se encontró versión para Minecraft {} con Loader {}.",
+                        if mc_version.is_empty() { "cualquiera" } else { mc_version },
+                        if ldr_clean.is_empty() { "cualquiera" } else { &ldr_clean }
+                    ));
+                }
+                &versions[0]
+            }
+        };
+
         let files = selected.get("files").and_then(|f| f.as_array()).ok_or("No hay archivos en la versión")?;
-        let primary_file = files.iter().find(|f| f.get("primary").and_then(|p| p.as_bool()).unwrap_or(false)).unwrap_or(&files[0]);
+
+        // En caso de modpacks, priorizar archivos .mrpack sobre bundles o changelogs
+        let primary_file = if category == "modpacks" {
+            files.iter()
+                .find(|f| f.get("filename").and_then(|n| n.as_str()).map(|n| n.ends_with(".mrpack")).unwrap_or(false))
+                .or_else(|| files.iter().find(|f| f.get("primary").and_then(|p| p.as_bool()).unwrap_or(false)))
+                .unwrap_or(&files[0])
+        } else {
+            files.iter()
+                .find(|f| f.get("primary").and_then(|p| p.as_bool()).unwrap_or(false))
+                .unwrap_or(&files[0])
+        };
 
         let dl_url = primary_file.get("url").and_then(|u| u.as_str()).ok_or("URL de descarga no encontrada")?;
         let filename = primary_file.get("filename").and_then(|n| n.as_str()).ok_or("Nombre de archivo no encontrado")?;

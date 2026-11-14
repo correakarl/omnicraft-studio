@@ -143,6 +143,17 @@ impl CurseForgeService {
         dest_folder: &Path,
         api_key: Option<&str>,
     ) -> Result<String, String> {
+        Self::download_item(mod_id, mc_version, loader, dest_folder, "mods", api_key).await
+    }
+
+    pub async fn download_item(
+        mod_id: &str,
+        mc_version: &str,
+        loader: &str,
+        dest_folder: &Path,
+        category: &str,
+        api_key: Option<&str>,
+    ) -> Result<String, String> {
         let key = api_key.unwrap_or(DEFAULT_CURSEFORGE_KEY);
         let client = reqwest::Client::builder()
             .user_agent("OmnicraftLauncherStudio/2.0")
@@ -157,12 +168,15 @@ impl CurseForgeService {
             _ => None,
         };
 
-        let mut url = format!("{}/mods/{}/files?pageSize=20", CURSEFORGE_API, mod_id);
+        // Si es modpack, no filtrar rígidamente por loaderId en CurseForge ya que a veces lo etiquetan de forma mixta
+        let mut url = format!("{}/mods/{}/files?pageSize=25", CURSEFORGE_API, mod_id);
         if !mc_version.is_empty() && mc_version != "Todas" {
             url.push_str(&format!("&gameVersion={}", urlencoding::encode(mc_version)));
         }
-        if let Some(lid) = loader_id {
-            url.push_str(&format!("&modLoaderType={}", lid));
+        if category != "modpacks" {
+            if let Some(lid) = loader_id {
+                url.push_str(&format!("&modLoaderType={}", lid));
+            }
         }
 
         let res = client
@@ -177,64 +191,80 @@ impl CurseForgeService {
         }
 
         let val: Value = res.json().await.map_err(|e| e.to_string())?;
-        let files = val.get("data").and_then(|d| d.as_array()).ok_or("No se encontraron archivos en CurseForge")?;
+        let mut files = val.get("data").and_then(|d| d.as_array()).cloned().unwrap_or_default();
+        
+        // Si no encontró con el filtro estricto de versión, reintentar sin filtrar gameVersion para no abortar
         if files.is_empty() {
-            return Err("No hay archivos compatibles en CurseForge para esta versión".to_string());
+            let fallback_url = format!("{}/mods/{}/files?pageSize=10", CURSEFORGE_API, mod_id);
+            if let Ok(fallback_res) = client.get(&fallback_url).header("x-api-key", key).send().await {
+                if let Ok(fallback_val) = fallback_res.json::<Value>().await {
+                    files = fallback_val.get("data").and_then(|d| d.as_array()).cloned().unwrap_or_default();
+                }
+            }
+        }
+
+        if files.is_empty() {
+            return Err("No hay archivos compatibles en CurseForge para este recurso".to_string());
         }
 
         let file = &files[0];
         let file_id = file.get("id").and_then(|v| v.as_i64()).ok_or("ID de archivo no válido")?;
-        let filename = file.get("fileName").and_then(|v| v.as_str()).unwrap_or("mod.jar").to_string();
+        let filename = file.get("fileName").and_then(|v| v.as_str()).unwrap_or("resource.zip").to_string();
 
         let final_path = dest_folder.join(&filename);
 
         // Si ya existe en la caché compartida, enlazar con Hardlink (0 MB extra)
-        let cache_file = crate::services::shared_storage::SharedStorageService::get_category_cache_dir("mods").join(&filename);
+        let cache_file = crate::services::shared_storage::SharedStorageService::get_category_cache_dir(category).join(&filename);
         if cache_file.is_file() {
             crate::services::shared_storage::SharedStorageService::link_file_to_instance(&cache_file, &final_path)?;
             return Ok(filename);
         }
 
         // Obtener URL de descarga directa
-        let dl_info_url = format!("{}/mods/{}/files/{}/download-url", CURSEFORGE_API, mod_id, file_id);
-        let dl_resp = client
-            .get(&dl_info_url)
-            .header("x-api-key", key)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
+        let mut download_url = file.get("downloadUrl").and_then(|v| v.as_str()).map(|s| s.to_string());
+        if download_url.is_none() {
+            let dl_info_url = format!("{}/mods/{}/files/{}/download-url", CURSEFORGE_API, mod_id, file_id);
+            let dl_resp = client
+                .get(&dl_info_url)
+                .header("x-api-key", key)
+                .send()
+                .await
+                .map_err(|e| e.to_string())?;
 
-        let dl_val: Value = dl_resp.json().await.map_err(|e| e.to_string())?;
-        let download_url = dl_val
-            .get("data")
-            .and_then(|v| v.as_str())
-            .ok_or("CurseForge no proveyó URL de descarga directa")?;
+            let dl_val: Value = dl_resp.json().await.map_err(|e| e.to_string())?;
+            download_url = dl_val
+                .get("data")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+        }
 
-        let file_bytes = client.get(download_url).send().await.map_err(|e| e.to_string())?.bytes().await.map_err(|e| e.to_string())?;
+        let dl_url_final = download_url.ok_or("CurseForge no proveyó URL de descarga directa para este archivo")?;
+
+        let file_bytes = client.get(&dl_url_final).send().await.map_err(|e| e.to_string())?.bytes().await.map_err(|e| e.to_string())?;
 
         crate::services::shared_storage::SharedStorageService::store_and_link(
-            "mods",
+            category,
             &filename,
             &file_bytes,
             &final_path,
         )?;
 
         // Resolución automática y recursiva de dependencias obligatorias en CurseForge (relationType == 3)
-        if let Some(deps) = file.get("dependencies").and_then(|d| d.as_array()) {
-            for dep in deps {
-                let rel_type = dep.get("relationType").and_then(|r| r.as_i64()).unwrap_or(0);
-                if rel_type == 3 {
-                    // relationType 3 = RequiredDependency
-                    if let Some(dep_mod_id) = dep.get("modId").and_then(|m| m.as_i64()) {
-                        let dep_id_str = dep_mod_id.to_string();
-                        // Descargar recursivamente la dependencia obligatoria de CurseForge
-                        Box::pin(Self::download_mod(
-                            &dep_id_str,
-                            mc_version,
-                            loader,
-                            dest_folder,
-                            api_key,
-                        )).await.ok();
+        if category == "mods" {
+            if let Some(deps) = file.get("dependencies").and_then(|d| d.as_array()) {
+                for dep in deps {
+                    let rel_type = dep.get("relationType").and_then(|r| r.as_i64()).unwrap_or(0);
+                    if rel_type == 3 {
+                        if let Some(dep_mod_id) = dep.get("modId").and_then(|m| m.as_i64()) {
+                            let dep_id_str = dep_mod_id.to_string();
+                            Box::pin(Self::download_mod(
+                                &dep_id_str,
+                                mc_version,
+                                loader,
+                                dest_folder,
+                                api_key,
+                            )).await.ok();
+                        }
                     }
                 }
             }
