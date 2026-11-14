@@ -140,6 +140,13 @@ export interface MicrosoftDeviceCodeModel {
   message: string;
 }
 
+export interface MicrosoftAccountSession {
+  username: string;
+  uuid: string;
+  access_token: string;
+  skin_url?: string | null;
+}
+
 export interface DownloadTaskModel {
   id: string;
   title: string;

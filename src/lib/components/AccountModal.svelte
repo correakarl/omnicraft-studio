@@ -1,7 +1,7 @@
 <script lang="ts">
   import { X, Check, Shield, User, Globe, AlertCircle, RefreshCw, Key, LogOut, Trash2, ExternalLink } from 'lucide-svelte';
   import { invoke } from '@tauri-apps/api/core';
-  import type { AccountModel, MicrosoftDeviceCodeModel } from '../types';
+  import type { AccountModel, MicrosoftDeviceCodeModel, MicrosoftAccountSession } from '../types';
   import { SkinService } from '../skinService';
 
   let {
@@ -52,20 +52,23 @@
 
     msPollingTimer = setInterval(async () => {
       try {
-        const token = await invoke<string>('poll_ms_auth_token', { deviceCode });
-        if (token && token !== 'pending') {
+        const session = await invoke<MicrosoftAccountSession>('poll_ms_auth_token', { deviceCode });
+        if (session && session.username) {
           clearInterval(msPollingTimer);
           isPollingMs = false;
-          // Usuario autenticado exitosamente
-          onSetAccount('Jugador_Microsoft', 'microsoft');
+          // Usuario autenticado exitosamente con datos oficiales
+          onSetAccount(session.username, 'microsoft', session.uuid);
           msDeviceFlow = null;
-          alert('✅ ¡Cuenta oficial de Microsoft vinculada con éxito!');
+          alert(`✅ ¡Cuenta oficial vinculada con éxito! Bienvenido, ${session.username}.`);
         }
       } catch (err: any) {
-        if (err !== 'pending') {
-          clearInterval(msPollingTimer);
-          isPollingMs = false;
+        if (typeof err === 'string' && (err === 'pending' || err.includes('pending'))) {
+          // Aún esperando confirmación del usuario
+          return;
         }
+        clearInterval(msPollingTimer);
+        isPollingMs = false;
+        alert(`Aviso de inicio de sesión: ${err}`);
       }
     }, Math.max(intervalSecs, 5) * 1000);
   }

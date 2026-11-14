@@ -390,6 +390,37 @@ impl DbManager {
         Ok(())
     }
 
+    pub fn save_microsoft_account(&self, username: &str, uuid: &str, access_token: &str, skin_url: Option<&str>) -> Result<()> {
+        let conn = self.get_connection()?;
+        conn.execute("UPDATE accounts SET active = 0", [])?;
+
+        let user_id = format!("msa-{}", uuid);
+        let data_json = serde_json::json!({
+            "id": user_id,
+            "username": username,
+            "type": "microsoft",
+            "uuid": uuid,
+            "token": access_token,
+            "enc_token": access_token,
+            "skin_url": skin_url.unwrap_or("")
+        }).to_string();
+
+        conn.execute(
+            "INSERT INTO accounts (id, username, account_type, uuid, active, data_json, updated_at)
+             VALUES (?1, ?2, 'microsoft', ?3, 1, ?4, CURRENT_TIMESTAMP)
+             ON CONFLICT(id) DO UPDATE SET username = ?2, account_type = 'microsoft', uuid = ?3, active = 1, data_json = ?4, updated_at = CURRENT_TIMESTAMP",
+            params![user_id, username, uuid, data_json],
+        )?;
+
+        // También registrar por nombre de usuario si ya existía una entrada con id=username
+        conn.execute(
+            "UPDATE accounts SET active = 1, account_type = 'microsoft', uuid = ?2, data_json = ?3, updated_at = CURRENT_TIMESTAMP WHERE username = ?1",
+            params![username, uuid, data_json],
+        ).ok();
+
+        Ok(())
+    }
+
     pub fn delete_account(&self, id: &str) -> Result<()> {
         let conn = self.get_connection()?;
         conn.execute("DELETE FROM accounts WHERE id = ?1", params![id])?;
@@ -455,6 +486,15 @@ impl DbManager {
              ON CONFLICT(instance_id, filename) DO UPDATE SET
                 name = excluded.name, version = excluded.version, active = 1, size_bytes = excluded.size_bytes",
             params![instance_id, filename, mod_id, name, version, loader, size_bytes],
+        )?;
+        Ok(())
+    }
+
+    pub fn unregister_mod(&self, instance_id: &str, filename: &str) -> Result<()> {
+        let conn = self.get_connection()?;
+        conn.execute(
+            "DELETE FROM instance_mods WHERE instance_id = ?1 AND filename = ?2",
+            params![instance_id, filename],
         )?;
         Ok(())
     }

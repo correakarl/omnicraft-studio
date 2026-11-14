@@ -11,7 +11,7 @@ use omnicraft_v2_lib::{
     ContentManagerService, ContentItem,
     CrashParserService, CrashDiagnosis, ServerBuilderService,
     MalwareScannerService, ScanResult, UpdateCheckerService, AppUpdateInfo,
-    LoaderInstallerService, JreProvisionerService, MicrosoftAuthService, MicrosoftDeviceCodeResponse,
+    LoaderInstallerService, JreProvisionerService, MicrosoftAuthService, MicrosoftDeviceCodeResponse, MicrosoftAccountSession,
     ModpackInstallerService, CompatibilityCheckerService, CompatibilityReport,
     SharedStorageService, SysMonitor, InstanceResourceUsage
 };
@@ -577,10 +577,28 @@ async fn install_mod_to_instance(
         return Ok(format!("Modpack {} extraído con éxito (mods y configuraciones listos)", pack_name));
     }
 
-    // Si es un mod ejecutable/jar, registrarlo en la base de datos de la instancia
+    // Si es un mod ejecutable/jar, deduplicar versiones anteriores del mismo mod en la carpeta
     if is_mod {
         let file_path = dest.join(&filename);
         let size_bytes = std::fs::metadata(&file_path).map(|m| m.len()).unwrap_or(0);
+
+        // Deduplicación preventiva en disco: si ya existía una versión anterior del mismo mod,
+        // eliminar el .jar anterior para evitar colisiones ClassNotFound / NullPointer / MixinConflict
+        let current_base = filename.split('-').next().unwrap_or(&filename).to_lowercase();
+        if let Ok(entries) = std::fs::read_dir(&dest) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p != file_path && p.extension().and_then(|s| s.to_str()) == Some("jar") {
+                    let fn_other = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+                    let other_base = fn_other.split('-').next().unwrap_or(&fn_other).to_lowercase();
+                    if other_base == current_base {
+                        std::fs::remove_file(&p).ok();
+                        state.db.unregister_mod(&instance_id, &fn_other).ok();
+                    }
+                }
+            }
+        }
+
         state.db.register_mod(
             &instance_id,
             &filename,
@@ -1073,8 +1091,11 @@ async fn start_ms_auth_flow() -> Result<MicrosoftDeviceCodeResponse, String> {
 }
 
 #[tauri::command]
-async fn poll_ms_auth_token(device_code: String) -> Result<String, String> {
-    MicrosoftAuthService::poll_device_token(&device_code).await
+async fn poll_ms_auth_token(device_code: String, state: State<'_, AppState>) -> Result<MicrosoftAccountSession, String> {
+    let session = MicrosoftAuthService::poll_device_token(&device_code).await?;
+    state.db.save_microsoft_account(&session.username, &session.uuid, &session.access_token, session.skin_url.as_deref())
+        .map_err(|e| format!("Error guardando sesión de Microsoft en BD: {}", e))?;
+    Ok(session)
 }
 
 fn main() {

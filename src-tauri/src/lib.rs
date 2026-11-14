@@ -21,7 +21,7 @@ pub use services::content_manager::{ContentManagerService, ContentItem};
 pub use services::malware_scanner::{MalwareScannerService, ScanResult};
 pub use services::update_checker::{UpdateCheckerService, AppUpdateInfo};
 pub use services::loader_installer::LoaderInstallerService;
-pub use services::jre_provisioner::{JreProvisionerService, MicrosoftAuthService, MicrosoftDeviceCodeResponse};
+pub use services::jre_provisioner::{JreProvisionerService, MicrosoftAuthService, MicrosoftDeviceCodeResponse, MicrosoftAccountSession};
 pub use services::modpack_installer::{ModpackInstallerService, ModpackInstallProgress};
 pub use services::compatibility_checker::{CompatibilityCheckerService, CompatibilityReport, CompatibilityIssue, ModMetadata};
 pub use services::jvm_optimizer::JvmOptimizer;
