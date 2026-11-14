@@ -22,9 +22,9 @@ impl ProfileSyncService {
         jvm_args: &str,
         width: u32,
         height: u32,
-        _username: &str,
-        _uuid: Option<&str>,
-        _access_token: Option<&str>,
+        username: &str,
+        uuid: Option<&str>,
+        access_token: Option<&str>,
     ) -> Result<(), String> {
         fs::create_dir_all(mc_dir).map_err(|e| e.to_string())?;
 
@@ -86,6 +86,29 @@ impl ProfileSyncService {
                 map.insert(profile_key.clone(), profile_obj.clone());
             }
             data["selectedProfile"] = json!(profile_key);
+
+            if let Some(u) = uuid {
+                let clean_uuid = u.replace('-', "");
+                let token_val = access_token.unwrap_or("0");
+                let mut auth_db = data.get("authenticationDatabase")
+                    .and_then(|v| v.as_object().cloned())
+                    .unwrap_or_default();
+
+                auth_db.insert(clean_uuid.clone(), json!({
+                    "accessToken": token_val,
+                    "username": username,
+                    "profiles": {
+                        clean_uuid.clone(): {
+                            "displayName": username
+                        }
+                    }
+                }));
+                data["authenticationDatabase"] = json!(auth_db);
+                data["selectedUser"] = json!({
+                    "account": clean_uuid,
+                    "profile": clean_uuid
+                });
+            }
 
             if let Ok(formatted) = serde_json::to_string_pretty(&data) {
                 fs::write(&profiles_path, formatted).ok();

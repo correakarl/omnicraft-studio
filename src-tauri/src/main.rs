@@ -336,16 +336,24 @@ fn launch_instance_cmd(
         .find(|i| i.id == instance_id)
         .ok_or_else(|| format!("Instancia '{}' no encontrada", instance_id))?;
 
-    // Usar assigned_username si la instancia tiene uno configurado, o en su defecto el username pasado
-    let effective_username = inst.assigned_username.clone()
-        .filter(|u| !u.trim().is_empty())
-        .unwrap_or_else(|| {
-            if username.trim().is_empty() {
-                format!("Player_{}", inst.name.replace(' ', "_"))
-            } else {
-                username
-            }
-        });
+    // Determinar usuario efectivo:
+    // Si assigned_username fue el placeholder autogenerado ("Player_<NombreInstancia>"),
+    // tratarlo como herencia automática de la cuenta activa en lugar de forzar modo offline.
+    let auto_placeholder = format!("Player_{}", inst.name.replace(' ', "_"));
+    let has_custom_assigned = inst.assigned_username.as_ref()
+        .map(|u| {
+            let trimmed = u.trim();
+            !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case(&auto_placeholder)
+        })
+        .unwrap_or(false);
+
+    let effective_username = if has_custom_assigned {
+        inst.assigned_username.clone().unwrap()
+    } else if !username.trim().is_empty() {
+        username
+    } else {
+        auto_placeholder
+    };
 
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     let mut root_path = PathBuf::from(&home);
@@ -391,7 +399,7 @@ fn launch_instance_cmd(
     // Iniciar el proceso del juego / lanzador
     // Resolver cuenta activa para el motor directo (identificar si es Microsoft o Free)
     let accounts = state.db.get_accounts().unwrap_or_default();
-    let matched_account = accounts.iter().find(|a| a.username == effective_username || (inst.assigned_username.is_none() && a.active));
+    let matched_account = accounts.iter().find(|a| a.username == effective_username || (!has_custom_assigned && a.active));
     let is_msa = matched_account.map(|a| a.account_type == "microsoft").unwrap_or(false);
 
     // RESTRICCIÓN DE SEGURIDAD MULTI-INSTANCIA:
@@ -402,7 +410,20 @@ fn launch_instance_cmd(
 
     let user_type = if is_msa { "msa" } else { "legacy" };
 
-    // Sincronizar perfiles técnicos en launcher_profiles.json y .hmcl (Java, RAM, loader, MC version)
+    // Si es Microsoft, resolver credenciales/tokens para iniciar la sesión auténtica en Mojang
+    let (resolved_uuid, resolved_token) = if is_msa {
+        if let Some((u, tok)) = state.db.get_active_account_credentials(&effective_username) {
+            (Some(u), Some(tok))
+        } else {
+            (matched_account.and_then(|a| a.uuid.clone()), None)
+        }
+    } else {
+        (matched_account.and_then(|a| a.uuid.clone()), None)
+    };
+
+    let player_uuid = resolved_uuid.as_deref().or(uuid.as_deref());
+
+    // Sincronizar perfiles técnicos en launcher_profiles.json y .hmcl (Java, RAM, loader, MC version, cuenta)
     if inst.instance_type == "client" {
         ProfileSyncService::sync_instance_profile(
             &inst.name,
@@ -417,26 +438,13 @@ fn launch_instance_cmd(
             inst.width,
             inst.height,
             &effective_username,
-            None,
-            None,
+            player_uuid,
+            resolved_token.as_deref(),
         )?;
     } else {
         // Preparar servidor si aplica
         ServerBuilderService::setup_server(&mc_path, inst.server_port)?;
     }
-
-    // Si es Microsoft, resolver credenciales/tokens para iniciar la sesión auténtica en Mojang
-    let (resolved_uuid, resolved_token) = if is_msa {
-        if let Some((u, tok)) = state.db.get_active_account_credentials(&effective_username) {
-            (Some(u), Some(tok))
-        } else {
-            (matched_account.and_then(|a| a.uuid.clone()), None)
-        }
-    } else {
-        (matched_account.and_then(|a| a.uuid.clone()), None)
-    };
-
-    let player_uuid = uuid.as_deref().or(resolved_uuid.as_deref());
 
     state.engine.launch_instance(
         &inst.id,

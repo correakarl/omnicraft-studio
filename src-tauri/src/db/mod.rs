@@ -160,15 +160,19 @@ impl DbManager {
 
     pub fn get_active_account_credentials(&self, username: &str) -> Option<(String, String)> {
         let conn = self.get_connection().ok()?;
-        let mut stmt = conn.prepare("SELECT data_json, uuid FROM accounts WHERE (username = ?1 OR id = ?1) LIMIT 1").ok()?;
+        let mut stmt = conn.prepare(
+            "SELECT data_json, uuid FROM accounts WHERE (username = ?1 OR id = ?1) ORDER BY (data_json IS NOT NULL AND data_json != '') DESC, active DESC LIMIT 1"
+        ).ok()?;
         let mut rows = stmt.query(params![username]).ok()?;
         if let Some(row) = rows.next().ok().flatten() {
-            let data_json: Option<String> = row.get(0).ok();
-            let db_uuid: Option<String> = row.get(1).ok();
+            let data_json: Option<String> = row.get(0).ok().flatten();
+            let db_uuid: Option<String> = row.get(1).ok().flatten();
             
             if let Some(json_str) = data_json {
                 if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                    let enc_token = val["enc_token"].as_str().unwrap_or("");
+                    let enc_token = val["enc_token"].as_str()
+                        .or_else(|| val["token"].as_str())
+                        .unwrap_or("");
                     let mut resolved_token = String::new();
                     if !enc_token.is_empty() {
                         // Descifrar con helper python si está cifrado con Fernet o usar token directo si no está cifrado
@@ -381,12 +385,20 @@ impl DbManager {
     pub fn set_active_account(&self, username: &str, account_type: &str, uuid: Option<&str>) -> Result<()> {
         let conn = self.get_connection()?;
         conn.execute("UPDATE accounts SET active = 0", [])?;
-        conn.execute(
-            "INSERT INTO accounts (id, username, account_type, uuid, active)
-             VALUES (?1, ?2, ?3, ?4, 1)
-             ON CONFLICT(id) DO UPDATE SET active = 1, updated_at = CURRENT_TIMESTAMP",
-            params![username, username, account_type, uuid],
+
+        let updated = conn.execute(
+            "UPDATE accounts SET active = 1, updated_at = CURRENT_TIMESTAMP WHERE username = ?1 OR id = ?1",
+            params![username],
         )?;
+
+        if updated == 0 {
+            conn.execute(
+                "INSERT INTO accounts (id, username, account_type, uuid, active)
+                 VALUES (?1, ?2, ?3, ?4, 1)
+                 ON CONFLICT(id) DO UPDATE SET active = 1, updated_at = CURRENT_TIMESTAMP",
+                params![username, username, account_type, uuid],
+            )?;
+        }
         Ok(())
     }
 
@@ -405,18 +417,18 @@ impl DbManager {
             "skin_url": skin_url.unwrap_or("")
         }).to_string();
 
+        // Eliminar posibles duplicados sin token para el mismo nombre de usuario
+        conn.execute(
+            "DELETE FROM accounts WHERE username = ?1 AND id != ?2",
+            params![username, user_id],
+        ).ok();
+
         conn.execute(
             "INSERT INTO accounts (id, username, account_type, uuid, active, data_json, updated_at)
              VALUES (?1, ?2, 'microsoft', ?3, 1, ?4, CURRENT_TIMESTAMP)
              ON CONFLICT(id) DO UPDATE SET username = ?2, account_type = 'microsoft', uuid = ?3, active = 1, data_json = ?4, updated_at = CURRENT_TIMESTAMP",
             params![user_id, username, uuid, data_json],
         )?;
-
-        // También registrar por nombre de usuario si ya existía una entrada con id=username
-        conn.execute(
-            "UPDATE accounts SET active = 1, account_type = 'microsoft', uuid = ?2, data_json = ?3, updated_at = CURRENT_TIMESTAMP WHERE username = ?1",
-            params![username, uuid, data_json],
-        ).ok();
 
         Ok(())
     }
