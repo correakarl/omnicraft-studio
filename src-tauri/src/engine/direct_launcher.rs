@@ -28,8 +28,64 @@ pub struct DirectLaunchPlan {
 }
 
 impl DirectLaunchPlan {
+    /// Limpia archivos .json dentro de config/ que tengan comas finales (trailing commas) o entradas null/vacías en listas
+    fn sanitize_instance_configs(mc_dir: &Path) {
+        let config_dir = mc_dir.join("config");
+        if !config_dir.is_dir() {
+            return;
+        }
+        if let Ok(entries) = fs::read_dir(&config_dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.extension().and_then(|s| s.to_str()) == Some("json") {
+                    if let Ok(content) = fs::read_to_string(&p) {
+                        let mut cleaned = String::with_capacity(content.len());
+                        let chars: Vec<char> = content.chars().collect();
+                        let mut i = 0;
+                        while i < chars.len() {
+                            if chars[i] == ',' {
+                                let mut j = i + 1;
+                                while j < chars.len() && chars[j].is_whitespace() {
+                                    j += 1;
+                                }
+                                if j < chars.len() && (chars[j] == ']' || chars[j] == '}') {
+                                    i += 1;
+                                    continue;
+                                }
+                            }
+                            cleaned.push(chars[i]);
+                            i += 1;
+                        }
+
+                        if let Ok(mut val) = serde_json::from_str::<Value>(&cleaned) {
+                            let mut modified = cleaned != content;
+                            if let Some(obj) = val.as_object_mut() {
+                                for (_k, v) in obj.iter_mut() {
+                                    if let Some(arr) = v.as_array_mut() {
+                                        let orig_len = arr.len();
+                                        arr.retain(|item| !item.is_null() && item.as_str() != Some(""));
+                                        if arr.len() != orig_len {
+                                            modified = true;
+                                        }
+                                    }
+                                }
+                            }
+                            if modified {
+                                if let Ok(pretty) = serde_json::to_string_pretty(&val) {
+                                    let _ = fs::write(&p, pretty);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// Resuelve el plan de ejecución analizando la versión y su herencia
     pub fn build(config: &DirectLaunchConfig) -> Result<Self, String> {
+        Self::sanitize_instance_configs(config.mc_dir);
+
         let versions_dir = config.mc_dir.join("versions");
         if !versions_dir.exists() {
             return Err("No existe el directorio de versiones 'versions' en la instancia.".to_string());

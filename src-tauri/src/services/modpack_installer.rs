@@ -51,6 +51,50 @@ pub struct ModpackInstallProgress {
 pub struct ModpackInstallerService;
 
 impl ModpackInstallerService {
+    /// Limpia archivos .json dentro de config/ que tengan comas finales (trailing commas) o entradas null en listas de recursos
+    fn sanitize_config_json(path: &Path) {
+        if path.extension().and_then(|s| s.to_str()) != Some("json") {
+            return;
+        }
+        if let Ok(content) = std::fs::read_to_string(path) {
+            // Eliminar comas antes de ] o } (ej: ["a", ] -> ["a"]) que hacen que GSON inserte `null` en arrays
+            let mut cleaned = String::with_capacity(content.len());
+            let chars: Vec<char> = content.chars().collect();
+            let mut i = 0;
+            while i < chars.len() {
+                if chars[i] == ',' {
+                    let mut j = i + 1;
+                    while j < chars.len() && chars[j].is_whitespace() {
+                        j += 1;
+                    }
+                    if j < chars.len() && (chars[j] == ']' || chars[j] == '}') {
+                        i += 1;
+                        continue;
+                    }
+                }
+                cleaned.push(chars[i]);
+                i += 1;
+            }
+
+            if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(&cleaned) {
+                if let Some(obj) = val.as_object_mut() {
+                    for (_k, v) in obj.iter_mut() {
+                        if let Some(arr) = v.as_array_mut() {
+                            arr.retain(|item| !item.is_null() && item.as_str() != Some(""));
+                        }
+                    }
+                }
+                if let Ok(pretty) = serde_json::to_string_pretty(&val) {
+                    let _ = std::fs::write(path, pretty);
+                    return;
+                }
+            }
+
+            if cleaned != content {
+                let _ = std::fs::write(path, cleaned);
+            }
+        }
+    }
     /// Detecta e instala un modpack sea de Modrinth (.mrpack) o de CurseForge (.zip)
     pub async fn install_modpack_auto<F>(
         archive_path: &Path,
@@ -132,6 +176,8 @@ impl ModpackInstallerService {
                         }
                         let mut outfile = File::create(&outpath).map_err(|e| e.to_string())?;
                         std::io::copy(&mut file, &mut outfile).map_err(|e| e.to_string())?;
+                        drop(outfile);
+                        Self::sanitize_config_json(&outpath);
                     }
                 }
             }
@@ -258,6 +304,8 @@ impl ModpackInstallerService {
                         }
                         let mut outfile = File::create(&outpath).map_err(|e| e.to_string())?;
                         std::io::copy(&mut file, &mut outfile).map_err(|e| e.to_string())?;
+                        drop(outfile);
+                        Self::sanitize_config_json(&outpath);
                     }
                 }
             }
