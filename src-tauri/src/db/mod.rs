@@ -39,6 +39,8 @@ pub struct AccountModel {
     pub account_type: String,
     pub uuid: Option<String>,
     pub active: bool,
+    pub applied_skin_id: Option<String>,
+    pub applied_skin_base64: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -137,15 +139,26 @@ impl DbManager {
 
     pub fn get_accounts(&self) -> Result<Vec<AccountModel>> {
         let conn = self.get_connection()?;
-        let mut stmt = conn.prepare("SELECT id, username, account_type, uuid, active FROM accounts ORDER BY active DESC, rowid DESC")?;
+        let mut stmt = conn.prepare("SELECT id, username, account_type, uuid, active, data_json FROM accounts ORDER BY active DESC, rowid DESC")?;
         let rows = stmt.query_map([], |row| {
             let active_int: i32 = row.get(4)?;
+            let data_json: Option<String> = row.get(5).ok().flatten();
+            let mut applied_skin_id = None;
+            let mut applied_skin_base64 = None;
+            if let Some(js) = data_json {
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&js) {
+                    applied_skin_id = val["applied_skin_id"].as_str().filter(|s| !s.is_empty()).map(|s| s.to_string());
+                    applied_skin_base64 = val["applied_skin_base64"].as_str().filter(|s| !s.is_empty()).map(|s| s.to_string());
+                }
+            }
             Ok(AccountModel {
                 id: row.get(0)?,
                 username: row.get(1)?,
                 account_type: row.get(2)?,
                 uuid: row.get(3)?,
                 active: active_int != 0,
+                applied_skin_id,
+                applied_skin_base64,
             })
         })?;
 
@@ -156,6 +169,113 @@ impl DbManager {
             }
         }
         Ok(list)
+    }
+
+    /// Vincula una skin en Base64 a un nombre de usuario en la base de datos para que se inyecte automáticamente en cualquier instancia que inicie con ese username
+    pub fn set_user_applied_skin(&self, username: &str, skin_id: Option<&str>, base64_png: &str) -> Result<()> {
+        let conn = self.get_connection()?;
+        let key_setting = format!("user_skin_b64:{}", username.to_lowercase());
+        self.set_setting(&key_setting, base64_png)?;
+
+        // Si la cuenta existe en la tabla accounts, actualizar también su data_json
+        let mut stmt = conn.prepare("SELECT id, data_json FROM accounts WHERE LOWER(username) = LOWER(?1)")?;
+        let mut rows = stmt.query(params![username])?;
+        if let Some(row) = rows.next()? {
+            let acc_id: String = row.get(0)?;
+            let existing_json: Option<String> = row.get(1).ok().flatten();
+            let mut val: serde_json::Value = existing_json
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .unwrap_or_else(|| serde_json::json!({}));
+            if let Some(sid) = skin_id {
+                val["applied_skin_id"] = serde_json::json!(sid);
+            }
+            val["applied_skin_base64"] = serde_json::json!(base64_png);
+            let _ = conn.execute(
+                "UPDATE accounts SET data_json = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
+                params![val.to_string(), acc_id],
+            );
+        }
+        Ok(())
+    }
+
+    /// Obtiene la skin en Base64 asociada a un username (o heredada de la sesión activa)
+    pub fn get_user_applied_skin(&self, username: &str) -> Option<String> {
+        // 1. Skin aplicada directamente a este username en system_settings
+        let key_setting = format!("user_skin_b64:{}", username.to_lowercase());
+        if let Ok(Some(b64)) = self.get_setting(&key_setting) {
+            if !b64.is_empty() {
+                return Some(b64);
+            }
+        }
+
+        if let Ok(conn) = self.get_connection() {
+            // 2. Skin guardada en data_json de la cuenta de este username
+            if let Ok(mut stmt) = conn.prepare("SELECT data_json FROM accounts WHERE LOWER(username) = LOWER(?1) LIMIT 1") {
+                if let Ok(mut rows) = stmt.query(params![username]) {
+                    if let Some(row) = rows.next().ok().flatten() {
+                        if let Some(js) = row.get::<_, Option<String>>(0).ok().flatten() {
+                            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&js) {
+                                if let Some(b64) = val["applied_skin_base64"].as_str().filter(|s| !s.is_empty()) {
+                                    return Some(b64.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3. Heredar skin aplicada a la cuenta de la sesión activa actual (active = 1)
+            if let Ok(mut stmt) = conn.prepare("SELECT username, data_json FROM accounts WHERE active = 1 LIMIT 1") {
+                if let Ok(mut rows) = stmt.query([]) {
+                    if let Some(row) = rows.next().ok().flatten() {
+                        let active_uname: String = row.get(0).unwrap_or_default();
+                        let active_key = format!("user_skin_b64:{}", active_uname.to_lowercase());
+                        if let Ok(Some(b64)) = self.get_setting(&active_key) {
+                            if !b64.is_empty() {
+                                return Some(b64);
+                            }
+                        }
+                        if let Some(js) = row.get::<_, Option<String>>(1).ok().flatten() {
+                            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&js) {
+                                if let Some(b64) = val["applied_skin_base64"].as_str().filter(|s| !s.is_empty()) {
+                                    return Some(b64.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 4. Fallback: si existe una skin con su nombre en local_skins o la última guardada
+            if let Ok(skins) = self.get_all_local_skins() {
+                if let Some(matched) = skins.iter().find(|s| s.name.eq_ignore_ascii_case(username)) {
+                    return Some(matched.png_data_base64.clone());
+                }
+                if let Some(first) = skins.first() {
+                    return Some(first.png_data_base64.clone());
+                }
+            }
+        }
+        None
+    }
+
+    /// Obtiene la URL oficial de la textura (skin_url) de la sesión activa (si existe) para heredarla automáticamente
+    pub fn get_active_session_skin_url(&self) -> Option<String> {
+        let conn = self.get_connection().ok()?;
+        let mut stmt = conn.prepare(
+            "SELECT data_json FROM accounts WHERE data_json IS NOT NULL AND data_json != '' ORDER BY active DESC, updated_at DESC"
+        ).ok()?;
+        let mut rows = stmt.query([]).ok()?;
+        while let Some(row) = rows.next().ok().flatten() {
+            if let Some(js) = row.get::<_, Option<String>>(0).ok().flatten() {
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&js) {
+                    if let Some(url) = val["skin_url"].as_str().filter(|u| !u.trim().is_empty()) {
+                        return Some(url.to_string());
+                    }
+                }
+            }
+        }
+        None
     }
 
     pub fn get_active_account_credentials(&self, username: &str) -> Option<(String, String)> {

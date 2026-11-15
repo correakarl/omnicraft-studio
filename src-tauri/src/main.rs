@@ -203,7 +203,16 @@ fn save_local_skin(
     base64_png: String,
     state: State<AppState>,
 ) -> Result<(), String> {
-    state.db.save_local_skin(&id, &name, &model_type, &base64_png).map_err(|e| e.to_string())
+    state.db.save_local_skin(&id, &name, &model_type, &base64_png).map_err(|e| e.to_string())?;
+    // Si aún no hay ninguna skin aplicada para la cuenta de la sesión activa, asignarla automáticamente
+    if let Ok(accounts) = state.db.get_accounts() {
+        if let Some(act) = accounts.iter().find(|a| a.active) {
+            if act.applied_skin_base64.is_none() {
+                let _ = state.db.set_user_applied_skin(&act.username, Some(&id), &base64_png);
+            }
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -216,15 +225,40 @@ fn inject_offline_skin_to_instance(
     folder_name: String,
     username: String,
     base64_png: String,
+    state: State<AppState>,
 ) -> Result<(), String> {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let mut mc_path = PathBuf::from(home);
+    let mut mc_path = PathBuf::from(&home);
     mc_path.push(".omnicraft_studio");
     mc_path.push("instances");
     mc_path.push(folder_name);
     mc_path.push(".minecraft");
 
-    SkinBridgeService::inject_offline_skin(&mc_path, &username, &base64_png)
+    // Guardar en la base de datos como skin aplicada para este username y para la sesión activa
+    let _ = state.db.set_user_applied_skin(&username, None, &base64_png);
+    if let Ok(accounts) = state.db.get_accounts() {
+        if let Some(act) = accounts.iter().find(|a| a.active) {
+            if !act.username.eq_ignore_ascii_case(&username) {
+                let _ = state.db.set_user_applied_skin(&act.username, None, &base64_png);
+            }
+        }
+    }
+
+    // Inyectar en la instancia solicitada y además propagar a todas las instancias existentes para que quede lista
+    SkinBridgeService::inject_offline_skin(&mc_path, &username, &base64_png)?;
+    if let Ok(all_insts) = state.db.get_all_instances() {
+        for inst in all_insts {
+            let other_mc = PathBuf::from(&home)
+                .join(".omnicraft_studio")
+                .join("instances")
+                .join(&inst.folder)
+                .join(".minecraft");
+            if other_mc.exists() {
+                let _ = SkinBridgeService::inject_offline_skin(&other_mc, &username, &base64_png);
+            }
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -243,7 +277,10 @@ async fn upload_skin_to_mojang(
         creds.map(|c| c.1).ok_or_else(|| "No se encontraron credenciales válidas de Microsoft/Mojang para este usuario. Inicia sesión en la cuenta oficial primero.".to_string())?
     };
 
-    SkinBridgeService::upload_skin_to_mojang(&token, &base64_png, &model_type).await
+    SkinBridgeService::upload_skin_to_mojang(&token, &base64_png, &model_type).await?;
+    // También registrar la skin como la skin activa del usuario en la base de datos local para inyección automática
+    let _ = state.db.set_user_applied_skin(&username, None, &base64_png);
+    Ok(())
 }
 
 #[tauri::command]
@@ -445,7 +482,7 @@ async fn launch_instance_cmd(
     let user_type = if is_msa { "msa" } else { "legacy" };
 
     // Si es Microsoft, verificar validez del token y renovarlo con refresh_token si expiró
-    let (resolved_uuid, resolved_token, resolved_skin_url) = if is_msa {
+    let (resolved_uuid, resolved_token, mut resolved_skin_url) = if is_msa {
         if let Some((mut u, mut tok, ref_tok, mut skin_url)) = state.db.get_account_full_credentials(&effective_username) {
             if !MicrosoftAuthService::is_minecraft_token_valid(&tok).await {
                 if let Some(rt) = ref_tok.as_deref() {
@@ -468,7 +505,9 @@ async fn launch_instance_cmd(
             (matched_account.as_ref().and_then(|a| a.uuid.clone()), None, None)
         }
     } else {
-        (matched_account.as_ref().and_then(|a| a.uuid.clone()), None, None)
+        // Para cuentas Non-Premium, heredar también la skin_url de la sesión activa si existe
+        let active_skin_url = state.db.get_active_session_skin_url();
+        (matched_account.as_ref().and_then(|a| a.uuid.clone()), None, active_skin_url)
     };
 
     let player_uuid = resolved_uuid.as_deref().or(uuid.as_deref());
@@ -481,6 +520,28 @@ async fn launch_instance_cmd(
 
     let mut mc_path = root_path.clone();
     mc_path.push(".minecraft");
+
+    // INYECCIÓN AUTOMÁTICA DE SKIN DEL USERNAME O DE LA SESIÓN ACTIVA:
+    // Antes de lanzar cualquier instancia cliente, si el username efectivo o la sesión activa
+    // tiene una skin aplicada en la BD (o si la sesión activa de Microsoft tiene su skin oficial),
+    // se inyecta automáticamente en CustomSkinLoader y SkinShuffle para ese username.
+    if inst.instance_type == "client" {
+        if let Some(user_b64) = state.db.get_user_applied_skin(&effective_username) {
+            let _ = SkinBridgeService::inject_offline_skin(&mc_path, &effective_username, &user_b64);
+        } else if let Some(ref s_url) = resolved_skin_url {
+            if let Ok(dl_b64) = SkinBridgeService::download_remote_skin_base64(s_url).await {
+                let _ = SkinBridgeService::inject_offline_skin(&mc_path, &effective_username, &dl_b64);
+            }
+        }
+        // Si el usuario no tenía skin_url pero existe un perfil en Mojang para la cuenta activa, intentar obtenerlo
+        if resolved_skin_url.is_none() {
+            if let Some(act) = active_account {
+                if let Some((_, _, _, s_url)) = state.db.get_account_full_credentials(&act.username) {
+                    resolved_skin_url = s_url;
+                }
+            }
+        }
+    }
 
     // Resolver Java: seleccionar la versión idónea según la versión de Minecraft o configuración
     let javas = JavaService::detect_all_javas();

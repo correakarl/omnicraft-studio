@@ -265,17 +265,17 @@ impl ProfileSyncService {
             None
         };
 
-        let skin_entry = if let Some(url) = skin_url.filter(|u| !u.trim().is_empty()) {
-            json!({
-                "url": url,
-                "model": "default",
-                "type": "skinshuffle:url"
-            })
-        } else if custom_skin_file.exists() {
+        let skin_entry = if custom_skin_file.exists() {
             json!({
                 "skin_name": username,
                 "model": "default",
                 "type": "skinshuffle:config"
+            })
+        } else if let Some(url) = skin_url.filter(|u| !u.trim().is_empty()) {
+            json!({
+                "url": url,
+                "model": "default",
+                "type": "skinshuffle:url"
             })
         } else if let Some(u_dashed) = &formatted_uuid {
             json!({
