@@ -1,0 +1,89 @@
+name: "Release Multiplataforma (Linux, Windows & macOS)"
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'ubuntu-22.04'
+            args: ''
+          - platform: 'windows-latest'
+            args: ''
+          - platform: 'macos-latest'
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout del Repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js (v20)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instalar pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+          run_install: false
+
+      - name: Instalar Rust estable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Instalar dependencias del sistema en Linux
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Instalar dependencias del frontend con pnpm
+        run: pnpm install
+
+      - name: Compilar y Empaquetar con Tauri Action
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Omnicraft Studio ${{ github.ref_name }}'
+          releaseBody: |
+            ## 🎮 Omnicraft Studio ${{ github.ref_name }}
+            
+            ¡Nueva versión oficial multiplataforma de Omnicraft Studio!
+            
+            ### 📦 Paquetes Generados Automáticamente:
+            - **Linux:** `.deb` (Debian/Ubuntu), `.AppImage` (Universal portátil), `.rpm` (Fedora/openSUSE)
+            - **Windows:** `.msi` y asistente `.exe` (NSIS)
+            - **macOS:** `.dmg` y `.app` (Universal: Intel & Apple Silicon)
+            
+            ### 💖 Apoyo y Donaciones:
+            - [Hacer una donación vía PayPal](https://www.paypal.com/ncp/payment/KR4E3PNGJEXQY)
+            - Página de donación: `donate/index.html`
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}
