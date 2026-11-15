@@ -19,7 +19,7 @@ pub use services::skin_bridge::{SkinBridgeService, RemotePublicSkin};
 pub use services::content_tools::{ContentToolsService, WorldSaveInfo, LogOutput};
 pub use services::content_manager::{ContentManagerService, ContentItem};
 pub use services::malware_scanner::{MalwareScannerService, ScanResult};
-pub use services::update_checker::{UpdateCheckerService, AppUpdateInfo};
+pub use services::update_checker::{UpdateCheckerService, AppUpdateInfo, AppUpdateAsset};
 pub use services::loader_installer::LoaderInstallerService;
 pub use services::jre_provisioner::{JreProvisionerService, MicrosoftAuthService, MicrosoftDeviceCodeResponse, MicrosoftAccountSession};
 pub use services::modpack_installer::{ModpackInstallerService, ModpackInstallProgress};

@@ -1253,6 +1253,11 @@ async fn check_omnicraft_updates() -> Result<AppUpdateInfo, String> {
 }
 
 #[tauri::command]
+async fn download_omnicraft_update_cmd(download_url: String, filename: String) -> Result<String, String> {
+    UpdateCheckerService::download_update_installer(&download_url, &filename).await
+}
+
+#[tauri::command]
 fn get_system_ui_mode(state: State<AppState>) -> String {
     state.db.get_setting("ui_mode").unwrap_or(None).unwrap_or_else(|| "basic".to_string())
 }
@@ -1456,6 +1461,7 @@ fn main() {
             scan_mod_file,
             quarantine_mod_file,
             check_omnicraft_updates,
+            download_omnicraft_update_cmd,
             get_system_ui_mode,
             set_system_ui_mode,
             get_system_language,

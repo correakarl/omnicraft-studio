@@ -54,12 +54,23 @@ export interface RecommendationModel {
   rank: number;
 }
 
+export interface AppUpdateAsset {
+  name: string;
+  os_type: 'linux' | 'windows' | 'macos' | string;
+  format: string;
+  size_bytes: number;
+  download_url: string;
+}
+
 export interface AppUpdateModel {
   current_version: string;
   latest_version: string;
   has_update: boolean;
   release_notes: string;
   download_url: string;
+  current_os?: string;
+  recommended_asset?: AppUpdateAsset | null;
+  assets?: AppUpdateAsset[];
 }
 
 export interface ScanResultModel {

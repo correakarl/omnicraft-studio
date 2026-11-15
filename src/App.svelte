@@ -80,6 +80,8 @@
   let appUpdate = $state<AppUpdateModel | null>(null);
   let isCheckingUpdate = $state(false);
   let isUpdateModalOpen = $state(false);
+  let isDownloadingUpdate = $state(false);
+  let updateDownloadMessage = $state('');
   let scanModResults = $state<Record<string, ScanResultModel>>({});
   let isScanningMod = $state<string | null>(null);
 
@@ -550,14 +552,39 @@
     i18n.setLanguage(newLang);
   }
 
-  async function checkAppUpdates() {
+  async function checkAppUpdates(manual: boolean = false) {
     isCheckingUpdate = true;
+    updateDownloadMessage = '';
     try {
       appUpdate = await invoke<AppUpdateModel>('check_omnicraft_updates');
+      if (appUpdate?.has_update) {
+        // Notificar automáticamente al iniciar si hay una nueva versión disponible
+        isUpdateModalOpen = true;
+      } else if (manual) {
+        isUpdateModalOpen = true;
+      }
     } catch (e) {
       console.warn('Error verificando actualizaciones:', e);
     } finally {
       isCheckingUpdate = false;
+    }
+  }
+
+  async function handleDownloadUpdateAsset(downloadUrl: string, filename: string) {
+    if (isDownloadingUpdate) return;
+    isDownloadingUpdate = true;
+    updateDownloadMessage = `Descargando ${filename}...`;
+    try {
+      const savedPath = await invoke<string>('download_omnicraft_update_cmd', {
+        downloadUrl,
+        filename,
+      });
+      updateDownloadMessage = `✅ Descargado en: ${savedPath}`;
+    } catch (e) {
+      updateDownloadMessage = '';
+      openExternalUrl(downloadUrl);
+    } finally {
+      isDownloadingUpdate = false;
     }
   }
 
@@ -2412,6 +2439,35 @@
             <div class="flex items-center justify-between">
               <div>
                 <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                  <Sparkles class="w-4 h-4 text-omni-cyan" />
+                  Actualizaciones Automáticas de Omnicraft Studio
+                </h3>
+                <p class="text-xs text-slate-400 mt-0.5">
+                  Omnicraft comprueba automáticamente al iniciar si existe una versión nueva en el repositorio oficial de GitHub (<span class="font-mono text-slate-300">correakarl/omnicraft-studio</span>).
+                </p>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="px-2.5 py-1 rounded-lg bg-obsidian-950 border border-obsidian-750 text-xs font-mono text-slate-300">
+                  Versión instalada: {appUpdate?.current_version || 'v1.0.0'}
+                </span>
+                <button
+                  type="button"
+                  onclick={() => checkAppUpdates(true)}
+                  disabled={isCheckingUpdate}
+                  class="px-3.5 py-2 rounded-xl bg-omni-indigo hover:bg-omni-indigo/80 text-white font-bold text-xs flex items-center gap-1.5 shadow transition disabled:opacity-50"
+                >
+                  <RotateCw class="w-3.5 h-3.5 {isCheckingUpdate ? 'animate-spin' : ''}" />
+                  <span>{isCheckingUpdate ? 'Comprobando...' : 'Buscar Actualizaciones'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card de Selección de Idioma del Sistema (i18n Internacionalización) -->
+          <div class="p-5 rounded-2xl bg-obsidian-900/60 border border-obsidian-750/80 space-y-3">
+            <div class="flex items-center justify-between">
+              <div>
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
                   <Languages class="w-4 h-4 text-omni-indigo" />
                   {t('language_label')}
                 </h3>
@@ -2642,37 +2698,107 @@
 <!-- MODAL ACTUALIZACIÓN DE OMNICRAFT -->
 {#if isUpdateModalOpen && appUpdate}
   <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-150">
-    <div class="bg-obsidian-900 border border-obsidian-750/90 rounded-2xl w-full max-w-lg p-6 flex flex-col shadow-2xl space-y-4">
+    <div class="bg-obsidian-900 border border-obsidian-750/90 rounded-2xl w-full max-w-xl p-6 flex flex-col shadow-2xl space-y-4">
       <div class="flex items-center justify-between border-b border-obsidian-750 pb-3">
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2.5">
           <Sparkles class="w-5 h-5 text-omni-cyan" />
-          <h3 class="text-sm font-bold text-white">Actualización de Omnicraft Launcher Studio</h3>
+          <div>
+            <h3 class="text-sm font-bold text-white">
+              {appUpdate.has_update
+                ? '¡Nueva Versión de Omnicraft Studio Disponible!'
+                : 'Omnicraft Studio está Actualizado'}
+            </h3>
+            <p class="text-[11px] text-slate-400">
+              {appUpdate.has_update
+                ? 'Se ha detectado una actualización oficial en el repositorio de GitHub. ¿Deseas descargarla ahora?'
+                : 'Ya cuentas con la última versión publicada en el repositorio oficial.'}
+            </p>
+          </div>
         </div>
-        <span class="text-xs font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-          {appUpdate.latest_version}
-        </span>
+        <div class="flex items-center gap-1.5">
+          <span class="text-[11px] font-mono px-2 py-0.5 rounded bg-obsidian-800 text-slate-300 border border-obsidian-700">
+            Actual: {appUpdate.current_version}
+          </span>
+          <span class="text-xs font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold">
+            Remota: {appUpdate.latest_version}
+          </span>
+        </div>
       </div>
 
-      <div class="text-xs text-slate-300 space-y-2 max-h-60 overflow-y-auto bg-obsidian-950 p-3 rounded-xl border border-obsidian-800 font-sans leading-relaxed whitespace-pre-wrap">
+      <div class="text-xs text-slate-300 space-y-2 max-h-48 overflow-y-auto bg-obsidian-950 p-3.5 rounded-xl border border-obsidian-800 font-sans leading-relaxed whitespace-pre-wrap">
         {appUpdate.release_notes}
       </div>
 
-      <div class="flex items-center justify-between pt-2">
-        <span class="text-[11px] text-slate-400 font-mono">Versión actual: {appUpdate.current_version}</span>
+      {#if appUpdate.recommended_asset}
+        <div class="p-3.5 rounded-xl bg-indigo-950/30 border border-indigo-500/30 flex items-center justify-between gap-3">
+          <div class="space-y-0.5">
+            <span class="text-[10px] font-bold uppercase tracking-wider text-omni-cyan block">
+              Instalador Recomendado para tu Sistema ({appUpdate.current_os?.toUpperCase() || 'Actual'})
+            </span>
+            <span class="text-xs font-bold text-white font-mono">{appUpdate.recommended_asset.name}</span>
+            <span class="text-[11px] text-slate-400 block">
+              Tamaño: {(appUpdate.recommended_asset.size_bytes / (1024 * 1024)).toFixed(1)} MB
+            </span>
+          </div>
+          <button
+            type="button"
+            disabled={isDownloadingUpdate}
+            onclick={() => appUpdate?.recommended_asset && handleDownloadUpdateAsset(appUpdate.recommended_asset.download_url, appUpdate.recommended_asset.name)}
+            class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-emerald-600/25 transition shrink-0 disabled:opacity-50"
+          >
+            <Download class="w-4 h-4" />
+            <span>{isDownloadingUpdate ? 'Descargando...' : 'Sí, Descargar Ahora'}</span>
+          </button>
+        </div>
+      {/if}
+
+      {#if appUpdate.assets && appUpdate.assets.length > 0}
+        <div class="space-y-1.5">
+          <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+            Todos los instaladores disponibles en el repositorio:
+          </span>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-36 overflow-y-auto pr-1">
+            {#each appUpdate.assets as asset}
+              <button
+                type="button"
+                disabled={isDownloadingUpdate}
+                onclick={() => handleDownloadUpdateAsset(asset.download_url, asset.name)}
+                class="flex items-center justify-between px-3 py-2 rounded-lg bg-obsidian-950 hover:bg-obsidian-800 border border-obsidian-800 text-left transition text-xs group disabled:opacity-50"
+              >
+                <div class="truncate pr-2">
+                  <span class="font-mono text-slate-200 group-hover:text-white block truncate text-[11px]">{asset.name}</span>
+                  <span class="text-[10px] text-slate-400 uppercase">{asset.os_type} • {(asset.size_bytes / (1024 * 1024)).toFixed(1)} MB</span>
+                </div>
+                <Download class="w-3.5 h-3.5 text-omni-cyan shrink-0 opacity-75 group-hover:opacity-100" />
+              </button>
+            {/each}
+          </div>
+        </div>
+      {/if}
+
+      {#if updateDownloadMessage}
+        <div class="px-3 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-mono">
+          {updateDownloadMessage}
+        </div>
+      {/if}
+
+      <div class="flex items-center justify-between pt-2 border-t border-obsidian-800">
+        <button
+          type="button"
+          onclick={() => openExternalUrl(appUpdate?.download_url || 'https://github.com/correakarl/omnicraft-studio/releases')}
+          class="text-xs text-omni-indigo hover:underline flex items-center gap-1"
+        >
+          <ExternalLink class="w-3.5 h-3.5" />
+          <span>Ver en GitHub Releases</span>
+        </button>
         <div class="flex gap-2">
           <button
+            type="button"
             onclick={() => isUpdateModalOpen = false}
-            class="px-3 py-1.5 rounded-lg bg-obsidian-800 hover:bg-obsidian-750 text-slate-300 font-bold text-xs"
+            class="px-3.5 py-1.5 rounded-lg bg-obsidian-800 hover:bg-obsidian-750 text-slate-300 font-bold text-xs"
           >
-            Cerrar
+            {appUpdate.has_update ? 'Más tarde' : 'Cerrar'}
           </button>
-          <a
-            href={appUpdate.download_url}
-            target="_blank"
-            class="px-3 py-1.5 rounded-lg bg-omni-indigo hover:bg-omni-indigo/80 text-white font-bold text-xs flex items-center gap-1.5 shadow"
-          >
-            <Download class="w-3.5 h-3.5" /> Descargar Actualización
-          </a>
         </div>
       </div>
     </div>
