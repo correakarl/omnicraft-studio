@@ -196,6 +196,64 @@ fn get_local_skins(state: State<AppState>) -> Result<Vec<LocalSkinModel>, String
 }
 
 #[tauri::command]
+async fn get_profile_skin_cmd(
+    username: String,
+    uuid: Option<String>,
+    account_type: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Option<(String, String)>, String> {
+    // 1. Verificar si el perfil tiene una skin aplicada directamente en la BD
+    let key_setting = format!("user_skin_b64:{}", username.to_lowercase());
+    if let Ok(Some(b64)) = state.db.get_setting(&key_setting) {
+        if !b64.is_empty() {
+            return Ok(Some((b64, "classic".to_string())));
+        }
+    }
+
+    if let Ok(accounts) = state.db.get_accounts() {
+        if let Some(acc) = accounts.iter().find(|a| a.username.eq_ignore_ascii_case(&username)) {
+            if let Some(ref b64) = acc.applied_skin_base64 {
+                if !b64.is_empty() {
+                    return Ok(Some((b64.clone(), "classic".to_string())));
+                }
+            }
+        }
+    }
+
+    // 2. Si es cuenta Microsoft o tiene skin_url oficial guardada en credenciales, descargarla
+    if let Some((_, _, _, Some(s_url))) = state.db.get_account_full_credentials(&username) {
+        if !s_url.is_empty() {
+            if let Ok(b64) = SkinBridgeService::download_remote_skin_base64(&s_url).await {
+                return Ok(Some((b64, "classic".to_string())));
+            }
+        }
+    }
+
+    // 3. Si es cuenta Microsoft (o si el username existe en Mojang), consultar Mojang API
+    let is_msa = account_type.as_deref() == Some("microsoft");
+    if is_msa {
+        let query_id = uuid.as_deref().filter(|u| !u.is_empty()).unwrap_or(&username);
+        if let Ok((b64, model)) = SkinBridgeService::fetch_mojang_skin(query_id).await {
+            return Ok(Some((b64, model)));
+        }
+    }
+
+    // 4. Usar la resolución general de skin aplicada al perfil o sesión activa (o biblioteca local)
+    if let Some(b64) = state.db.get_user_applied_skin(&username) {
+        return Ok(Some((b64, "classic".to_string())));
+    }
+
+    // 5. Por último, si la sesión activa de Microsoft tiene skin_url, usarla
+    if let Some(active_url) = state.db.get_active_session_skin_url() {
+        if let Ok(b64) = SkinBridgeService::download_remote_skin_base64(&active_url).await {
+            return Ok(Some((b64, "classic".to_string())));
+        }
+    }
+
+    Ok(None)
+}
+
+#[tauri::command]
 fn save_local_skin(
     id: String,
     name: String,
@@ -1392,6 +1450,7 @@ fn main() {
             get_all_game_versions,
             refresh_game_versions,
             get_local_skins,
+            get_profile_skin_cmd,
             save_local_skin,
             delete_local_skin,
             inject_offline_skin_to_instance,

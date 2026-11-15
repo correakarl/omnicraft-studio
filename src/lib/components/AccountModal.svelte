@@ -24,7 +24,11 @@
   let newUsername = $state('');
   let accountType = $state<'offline' | 'microsoft'>('offline');
   let previewAvatar = $derived(SkinService.getAvatarUrl(newUsername || activeAccount?.username || 'Steve', 64));
-  let previewBody = $derived(SkinService.getBodyUrl(newUsername || activeAccount?.username || 'Steve', 180));
+  let previewBody = $derived(
+    (!newUsername && activeAccount?.applied_skin_base64)
+      ? activeAccount.applied_skin_base64
+      : SkinService.getBodyUrl(newUsername || activeAccount?.username || 'Steve', 180)
+  );
 
   // Estados de Microsoft OAuth Device Flow
   let msDeviceFlow = $state<MicrosoftDeviceCodeModel | null>(null);

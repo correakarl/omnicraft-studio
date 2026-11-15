@@ -403,6 +403,7 @@
         base64Png: skin.png_data_base64
       });
       localSkins = await invoke<LocalSkinModel[]>('get_local_skins');
+      accounts = await invoke<AccountModel[]>('get_accounts');
       alert(`✅ Skin '${skin.name}' guardada correctamente en la base de datos local SQLite.`);
     } catch (e) {
       alert(`Error al guardar skin: ${e}`);
@@ -417,7 +418,8 @@
         username: targetUser,
         base64Png: base64
       });
-      alert(`✅ Skin inyectada para el jugador '${targetUser}' en la instancia '${currentInstance.name}' (CustomSkinLoader/LocalSkin). Se verá en tu juego.`);
+      accounts = await invoke<AccountModel[]>('get_accounts');
+      alert(`✅ Skin aplicada al perfil '${targetUser}' e inyectada en '${currentInstance.name}'. Se cargará automáticamente en el juego.`);
     } catch (e) {
       alert(`Error al inyectar skin offline: ${e}`);
     }
@@ -2681,7 +2683,7 @@
 <!-- MODAL EDITOR DE SKINS (OFFLINE Y MOJANG) -->
 <SkinEditorModal
   isOpen={isSkinEditorModalOpen}
-  {activeAccount}
+  activeAccount={accounts.find(a => a.username.toLowerCase() === getEffectiveAccountLabel(currentInstance).username.toLowerCase()) || activeAccount}
   {localSkins}
   onClose={() => isSkinEditorModalOpen = false}
   onSaveSkin={handleSaveLocalSkin}

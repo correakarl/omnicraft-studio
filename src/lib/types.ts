@@ -30,6 +30,8 @@ export interface AccountModel {
   account_type: 'offline' | 'microsoft';
   uuid?: string | null;
   active: boolean;
+  applied_skin_id?: string | null;
+  applied_skin_base64?: string | null;
 }
 
 export interface JavaRuntime {

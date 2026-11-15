@@ -306,37 +306,43 @@
     if (!ctx) return;
     ctx.imageSmoothingEnabled = false;
 
-    // Si la cuenta activa es Microsoft / Premium, intentar precargar su skin oficial
-    if (activeAccount && activeAccount.account_type === 'microsoft' && activeAccount.username) {
+    // Precargar la skin asignada al perfil seleccionado (sea Non-Premium o Microsoft)
+    if (activeAccount && activeAccount.username) {
       isLoadingAccountSkin = true;
       try {
-        const [skinB64, detectedModel] = await invoke<[string, string]>('fetch_mojang_skin_cmd', {
-          usernameOrUuid: activeAccount.uuid || activeAccount.username,
+        const res = await invoke<[string, string] | null>('get_profile_skin_cmd', {
+          username: activeAccount.username,
+          uuid: activeAccount.uuid || null,
+          accountType: activeAccount.account_type || null,
         });
 
-        if (detectedModel === 'slim' || detectedModel === 'classic') {
-          modelType = detectedModel;
-        }
+        if (res && res[0]) {
+          const [skinB64, detectedModel] = res;
+          if (detectedModel === 'slim' || detectedModel === 'classic') {
+            modelType = detectedModel;
+          }
 
-        const skinImg = new Image();
-        skinImg.onload = () => {
-          if (!ctx || !canvasEl) return;
-          ctx.clearRect(0, 0, 64, 64);
-          ctx.drawImage(skinImg, 0, 0, 64, 64);
-          historyStack = [];
-          historyIndex = -1;
-          pushHistory();
-          init3DViewer();
-          isLoadingAccountSkin = false;
-        };
-        skinImg.onerror = () => {
-          fallbackToOfficialDefault(ctx);
-          isLoadingAccountSkin = false;
-        };
-        skinImg.src = skinB64;
-        return;
+          const skinImg = new Image();
+          skinImg.onload = () => {
+            if (!ctx || !canvasEl) return;
+            ctx.clearRect(0, 0, 64, 64);
+            ctx.drawImage(skinImg, 0, 0, 64, 64);
+            historyStack = [];
+            historyIndex = -1;
+            pushHistory();
+            init3DViewer();
+            isLoadingAccountSkin = false;
+          };
+          skinImg.onerror = () => {
+            fallbackToOfficialDefault(ctx);
+            isLoadingAccountSkin = false;
+          };
+          skinImg.src = skinB64;
+          return;
+        }
       } catch (err) {
-        console.warn('No se pudo precargar la skin de Mojang, usando plantilla por defecto:', err);
+        console.warn('No se pudo precargar la skin del perfil, usando plantilla por defecto:', err);
+      } finally {
         isLoadingAccountSkin = false;
       }
     }
