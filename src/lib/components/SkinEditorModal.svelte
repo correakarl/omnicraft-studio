@@ -595,14 +595,19 @@
     link.click();
   }
 
+  // Observar cambios de cuenta/perfil seleccionado mientras el modal esté abierto para actualizar el Editor 3D/2D
+  let lastLoadedProfileUsername = $state<string>('');
   $effect(() => {
-    if (isOpen) {
+    const currentUsername = activeAccount?.username || '';
+    if (isOpen && currentUsername && currentUsername !== lastLoadedProfileUsername) {
+      lastLoadedProfileUsername = currentUsername;
       setTimeout(() => {
         initCanvas();
         init3DViewer();
         drawMaskOverlay();
       }, 60);
-    } else {
+    } else if (!isOpen) {
+      lastLoadedProfileUsername = '';
       if (viewer3d) {
         viewer3d.dispose();
         viewer3d = null;
@@ -789,15 +794,15 @@
                         <Paintbrush class="w-3 h-3 text-omni-cyan" /> Cargar en Editor
                       </button>
 
-                      <div class="grid grid-cols-2 gap-1.5">
-                        <!-- Aplicar Offline -->
+                       <div class="grid grid-cols-2 gap-1.5">
+                        <!-- Asignar al Perfil Seleccionado -->
                         <button
                           type="button"
                           onclick={() => onInjectOffline(s.png_data_base64)}
                           class="py-1 px-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 text-emerald-300 font-semibold rounded-lg text-[10px] transition text-center truncate"
-                          title="Inyectar a la instancia offline seleccionada"
+                          title="Asignar esta skin al perfil seleccionado (se inyectará al juego al arrancar)"
                         >
-                          Aplicar Offline
+                          Asignar al Perfil
                         </button>
 
                         <!-- Subir a Mojang si es Premium -->
@@ -1336,13 +1341,14 @@
               <Save class="w-4 h-4" /> Guardar en Biblioteca Local
             </button>
 
-            <!-- Inyección para Jugadores Offline -->
+            <!-- Asignación al Perfil Seleccionado -->
             <button
               type="button"
               onclick={() => canvasEl && onInjectOffline(canvasEl.toDataURL('image/png'))}
               class="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition flex items-center justify-center gap-2 text-xs shadow-md shadow-emerald-600/25"
+              title="Asigna esta skin al perfil seleccionado; se inyectará automáticamente al juego al arrancar"
             >
-              <Sparkles class="w-4 h-4" /> Inyectar a Jugador Actual (Offline)
+              <Sparkles class="w-4 h-4" /> Asignar al Perfil ({activeAccount?.username || 'Activo'})
             </button>
 
             <!-- Migración Mojang si cuenta Microsoft -->

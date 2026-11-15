@@ -412,16 +412,16 @@
 
   async function handleInjectOfflineSkin(base64: string) {
     try {
-      const targetUser = getEffectiveAccountLabel(currentInstance).username;
-      await invoke('inject_offline_skin_to_instance', {
-        folderName: currentInstance.folder,
+      const targetUser = activeAccount.username;
+      await invoke('assign_skin_to_profile_cmd', {
         username: targetUser,
+        skinId: null,
         base64Png: base64
       });
       accounts = await invoke<AccountModel[]>('get_accounts');
-      alert(`✅ Skin aplicada al perfil '${targetUser}' e inyectada en '${currentInstance.name}'. Se cargará automáticamente en el juego.`);
+      alert(`✅ Skin asignada al perfil '${targetUser}'. Se inyectará automáticamente al juego cuando inicies una instancia con este perfil.`);
     } catch (e) {
-      alert(`Error al inyectar skin offline: ${e}`);
+      alert(`Error al asignar skin al perfil: ${e}`);
     }
   }
 
@@ -2683,7 +2683,7 @@
 <!-- MODAL EDITOR DE SKINS (OFFLINE Y MOJANG) -->
 <SkinEditorModal
   isOpen={isSkinEditorModalOpen}
-  activeAccount={accounts.find(a => a.username.toLowerCase() === getEffectiveAccountLabel(currentInstance).username.toLowerCase()) || activeAccount}
+  {activeAccount}
   {localSkins}
   onClose={() => isSkinEditorModalOpen = false}
   onSaveSkin={handleSaveLocalSkin}

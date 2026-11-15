@@ -279,43 +279,29 @@ fn delete_local_skin(id: String, state: State<AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn assign_skin_to_profile_cmd(
+    username: String,
+    skin_id: Option<String>,
+    base64_png: String,
+    state: State<AppState>,
+) -> Result<(), String> {
+    // Solo asigna la skin al perfil en la base de datos (sin tocar archivos de instancias).
+    // La inyección física al juego se ejecuta únicamente al arrancar la instancia desde el perfil seleccionado.
+    state.db.set_user_applied_skin(&username, skin_id.as_deref(), &base64_png)
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 fn inject_offline_skin_to_instance(
     folder_name: String,
     username: String,
     base64_png: String,
     state: State<AppState>,
 ) -> Result<(), String> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let mut mc_path = PathBuf::from(&home);
-    mc_path.push(".omnicraft_studio");
-    mc_path.push("instances");
-    mc_path.push(folder_name);
-    mc_path.push(".minecraft");
-
-    // Guardar en la base de datos como skin aplicada para este username y para la sesión activa
-    let _ = state.db.set_user_applied_skin(&username, None, &base64_png);
-    if let Ok(accounts) = state.db.get_accounts() {
-        if let Some(act) = accounts.iter().find(|a| a.active) {
-            if !act.username.eq_ignore_ascii_case(&username) {
-                let _ = state.db.set_user_applied_skin(&act.username, None, &base64_png);
-            }
-        }
-    }
-
-    // Inyectar en la instancia solicitada y además propagar a todas las instancias existentes para que quede lista
-    SkinBridgeService::inject_offline_skin(&mc_path, &username, &base64_png)?;
-    if let Ok(all_insts) = state.db.get_all_instances() {
-        for inst in all_insts {
-            let other_mc = PathBuf::from(&home)
-                .join(".omnicraft_studio")
-                .join("instances")
-                .join(&inst.folder)
-                .join(".minecraft");
-            if other_mc.exists() {
-                let _ = SkinBridgeService::inject_offline_skin(&other_mc, &username, &base64_png);
-            }
-        }
-    }
+    let _ = folder_name;
+    state.db.set_user_applied_skin(&username, None, &base64_png)
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -1453,6 +1439,7 @@ fn main() {
             get_profile_skin_cmd,
             save_local_skin,
             delete_local_skin,
+            assign_skin_to_profile_cmd,
             inject_offline_skin_to_instance,
             upload_skin_to_mojang,
             fetch_mojang_skin_cmd,

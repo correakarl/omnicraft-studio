@@ -23,10 +23,34 @@
   let activeAccount = $derived(accounts.find(a => a.active) || accounts[0]);
   let newUsername = $state('');
   let accountType = $state<'offline' | 'microsoft'>('offline');
+  let profileSkinB64 = $state<string | null>(null);
+
+  $effect(() => {
+    const uname = activeAccount?.username;
+    const appliedB64 = activeAccount?.applied_skin_base64;
+    if (appliedB64) {
+      profileSkinB64 = appliedB64;
+    } else if (uname && isOpen) {
+      invoke<[string, string] | null>('get_profile_skin_cmd', {
+        username: uname,
+        uuid: activeAccount?.uuid || null,
+        accountType: activeAccount?.account_type || null,
+      })
+        .then(res => {
+          profileSkinB64 = res ? res[0] : null;
+        })
+        .catch(() => {
+          profileSkinB64 = null;
+        });
+    } else {
+      profileSkinB64 = null;
+    }
+  });
+
   let previewAvatar = $derived(SkinService.getAvatarUrl(newUsername || activeAccount?.username || 'Steve', 64));
   let previewBody = $derived(
-    (!newUsername && activeAccount?.applied_skin_base64)
-      ? activeAccount.applied_skin_base64
+    (!newUsername && (activeAccount?.applied_skin_base64 || profileSkinB64))
+      ? (activeAccount?.applied_skin_base64 || profileSkinB64!)
       : SkinService.getBodyUrl(newUsername || activeAccount?.username || 'Steve', 180)
   );
 
