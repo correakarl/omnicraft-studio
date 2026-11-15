@@ -8,6 +8,4 @@ src-tauri/target
 *.deb
 *.rpm
 *.AppImage
-!downloads/**
-!downloads/**/*
 

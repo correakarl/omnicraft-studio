@@ -84,10 +84,6 @@ impl UpdateCheckerService {
                         }
                     }
 
-                    if assets.is_empty() {
-                        assets = Self::fallback_public_folder_assets(latest_clean);
-                    }
-
                     let recommended_asset = Self::pick_recommended_asset(&assets, &current_os);
                     let has_update = Self::compare_semver(latest_clean, Self::CURRENT_VERSION);
 
@@ -105,48 +101,15 @@ impl UpdateCheckerService {
             }
         }
 
-        // Respaldo: consultar Cargo.toml directamente en la rama main del repositorio público
-        let raw_cargo_url = format!(
-            "https://raw.githubusercontent.com/{}/main/src-tauri/Cargo.toml",
-            Self::REPO_SLUG
-        );
-        if let Ok(resp) = client.get(&raw_cargo_url).send().await {
-            if resp.status().is_success() {
-                if let Ok(text) = resp.text().await {
-                    if let Some(remote_ver) = Self::extract_version_from_cargo_toml(&text) {
-                        let has_update = Self::compare_semver(&remote_ver, Self::CURRENT_VERSION);
-                        let assets = Self::fallback_public_folder_assets(&remote_ver);
-                        let recommended_asset = Self::pick_recommended_asset(&assets, &current_os);
-                        return Ok(AppUpdateInfo {
-                            current_version: format!("v{}", Self::CURRENT_VERSION),
-                            latest_version: format!("v{}", remote_ver),
-                            has_update,
-                            release_notes: format!(
-                                "Versión v{} detectada en el repositorio oficial de Omnicraft Studio (carpeta pública downloads/).",
-                                remote_ver
-                            ),
-                            download_url: format!("https://github.com/{}/tree/main/downloads", Self::REPO_SLUG),
-                            current_os,
-                            recommended_asset,
-                            assets,
-                        });
-                    }
-                }
-            }
-        }
-
-        let fallback_assets = Self::fallback_public_folder_assets(Self::CURRENT_VERSION);
-        let recommended_asset = Self::pick_recommended_asset(&fallback_assets, &current_os);
-
         Ok(AppUpdateInfo {
             current_version: format!("v{}", Self::CURRENT_VERSION),
             latest_version: format!("v{}", Self::CURRENT_VERSION),
             has_update: false,
             release_notes: "Estás utilizando la versión más reciente y blindada de Omnicraft Studio.".to_string(),
-            download_url: format!("https://github.com/{}/releases", Self::REPO_SLUG),
+            download_url: format!("https://github.com/{}/releases/latest", Self::REPO_SLUG),
             current_os,
-            recommended_asset,
-            assets: fallback_assets,
+            recommended_asset: None,
+            assets: Vec::new(),
         })
     }
 
@@ -254,70 +217,6 @@ impl UpdateCheckerService {
             }
         }
         assets.iter().find(|a| a.os_type == current_os).cloned()
-    }
-
-    fn fallback_public_folder_assets(version: &str) -> Vec<AppUpdateAsset> {
-        let v = version.trim_start_matches('v');
-        let base = format!("https://github.com/{}/raw/main/downloads", Self::REPO_SLUG);
-        vec![
-            AppUpdateAsset {
-                name: format!("Omnicraft.Studio_{}_amd64.deb", v),
-                os_type: "linux".to_string(),
-                format: "deb".to_string(),
-                size_bytes: 7_003_692,
-                download_url: format!("{}/linux/Omnicraft.Studio_{}_amd64.deb", base, v),
-            },
-            AppUpdateAsset {
-                name: format!("Omnicraft.Studio_{}_amd64.AppImage", v),
-                os_type: "linux".to_string(),
-                format: "appimage".to_string(),
-                size_bytes: 87_153_144,
-                download_url: format!("{}/linux/Omnicraft.Studio_{}_amd64.AppImage", base, v),
-            },
-            AppUpdateAsset {
-                name: format!("Omnicraft.Studio-{}-1.x86_64.rpm", v),
-                os_type: "linux".to_string(),
-                format: "rpm".to_string(),
-                size_bytes: 7_008_473,
-                download_url: format!("{}/linux/Omnicraft.Studio-{}-1.x86_64.rpm", base, v),
-            },
-            AppUpdateAsset {
-                name: format!("Omnicraft.Studio_{}_x64-setup.exe", v),
-                os_type: "windows".to_string(),
-                format: "exe".to_string(),
-                size_bytes: 4_597_286,
-                download_url: format!("{}/windows/Omnicraft.Studio_{}_x64-setup.exe", base, v),
-            },
-            AppUpdateAsset {
-                name: format!("Omnicraft.Studio_{}_x64_en-US.msi", v),
-                os_type: "windows".to_string(),
-                format: "msi".to_string(),
-                size_bytes: 6_418_432,
-                download_url: format!("{}/windows/Omnicraft.Studio_{}_x64_en-US.msi", base, v),
-            },
-            AppUpdateAsset {
-                name: format!("Omnicraft.Studio_{}_aarch64.dmg", v),
-                os_type: "macos".to_string(),
-                format: "dmg".to_string(),
-                size_bytes: 7_351_640,
-                download_url: format!("{}/macos/Omnicraft.Studio_{}_aarch64.dmg", base, v),
-            },
-        ]
-    }
-
-    fn extract_version_from_cargo_toml(content: &str) -> Option<String> {
-        for line in content.lines() {
-            let trimmed = line.trim();
-            if trimmed.starts_with("version") && trimmed.contains('=') {
-                if let Some(val) = trimmed.split('=').nth(1) {
-                    let clean = val.trim().trim_matches('"').trim_matches('\'');
-                    if !clean.is_empty() {
-                        return Some(clean.to_string());
-                    }
-                }
-            }
-        }
-        None
     }
 
     fn compare_semver(remote: &str, current: &str) -> bool {
