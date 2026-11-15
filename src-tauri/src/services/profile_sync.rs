@@ -249,6 +249,8 @@ impl ProfileSyncService {
         }
 
         // 2. Determinar el preset de skin adecuado para el jugador activo
+        // Si el usuario inyectó una skin local en config/skinshuffle/skins/<username>.png, preservarla
+        let custom_skin_file = ss_dir.join("skins").join(format!("{}.png", username));
         let clean_uuid = uuid.unwrap_or("").replace('-', "");
         let formatted_uuid = if clean_uuid.len() == 32 {
             Some(format!(
@@ -268,6 +270,12 @@ impl ProfileSyncService {
                 "url": url,
                 "model": "default",
                 "type": "skinshuffle:url"
+            })
+        } else if custom_skin_file.exists() {
+            json!({
+                "skin_name": username,
+                "model": "default",
+                "type": "skinshuffle:config"
             })
         } else if let Some(u_dashed) = &formatted_uuid {
             json!({

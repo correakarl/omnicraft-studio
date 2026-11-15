@@ -411,12 +411,13 @@
 
   async function handleInjectOfflineSkin(base64: string) {
     try {
+      const targetUser = getEffectiveAccountLabel(currentInstance).username;
       await invoke('inject_offline_skin_to_instance', {
         folderName: currentInstance.folder,
-        username: activeAccount.username,
+        username: targetUser,
         base64Png: base64
       });
-      alert(`✅ Skin inyectada para el jugador '${activeAccount.username}' en la instancia '${currentInstance.name}' (CustomSkinLoader/LocalSkin). Se verá en tu juego offline.`);
+      alert(`✅ Skin inyectada para el jugador '${targetUser}' en la instancia '${currentInstance.name}' (CustomSkinLoader/LocalSkin). Se verá en tu juego.`);
     } catch (e) {
       alert(`Error al inyectar skin offline: ${e}`);
     }

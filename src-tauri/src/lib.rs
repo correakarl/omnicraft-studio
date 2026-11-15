@@ -15,7 +15,7 @@ pub use services::server_builder::ServerBuilderService;
 pub use services::modrinth_download::ModrinthDownloadService;
 pub use services::curseforge_service::{CurseForgeService, UnifiedSearchResult};
 pub use services::mojang_manifest::{MojangManifestService, GameVersionEntry};
-pub use services::skin_bridge::SkinBridgeService;
+pub use services::skin_bridge::{SkinBridgeService, RemotePublicSkin};
 pub use services::content_tools::{ContentToolsService, WorldSaveInfo, LogOutput};
 pub use services::content_manager::{ContentManagerService, ContentItem};
 pub use services::malware_scanner::{MalwareScannerService, ScanResult};

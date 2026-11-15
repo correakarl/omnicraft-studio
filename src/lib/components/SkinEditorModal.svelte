@@ -23,11 +23,13 @@
     Eye,
     EyeOff,
     Play,
-    Pause
+    Pause,
+    Search,
+    Globe
   } from 'lucide-svelte';
   import { SkinViewer, WalkingAnimation } from 'skinview3d';
   import { invoke } from '@tauri-apps/api/core';
-  import type { LocalSkinModel, AccountModel } from '../types';
+  import type { LocalSkinModel, AccountModel, RemotePublicSkinModel } from '../types';
   import { OFFICIAL_STEVE_BASE64, OFFICIAL_ALEX_BASE64 } from '../officialSkins';
 
   let {
@@ -52,8 +54,90 @@
     onRefreshSkins?: () => void;
   }>();
 
-  // Vista activa: 'editor' | 'library'
-  let activeView = $state<'editor' | 'library'>('editor');
+  // Vista activa: 'editor' | 'library' | 'remote'
+  let activeView = $state<'editor' | 'library' | 'remote'>('editor');
+
+  // Estados de la Biblioteca Pública Remota (MineSkin + Perfiles Oficiales Mojang)
+  let remoteSkins = $state<RemotePublicSkinModel[]>([]);
+  let remoteSearchQuery = $state('');
+  let remotePage = $state(1);
+  let isSearchingRemote = $state(false);
+  let downloadingRemoteIds = $state<Set<string>>(new Set());
+  let savedRemoteIds = $state<Set<string>>(new Set());
+
+  async function searchRemoteSkins(page: number = 1) {
+    isSearchingRemote = true;
+    remotePage = page;
+    try {
+      const results = await invoke<RemotePublicSkinModel[]>('search_remote_skins_cmd', {
+        query: remoteSearchQuery,
+        page: page,
+      });
+      remoteSkins = results;
+    } catch (e) {
+      console.error('Error buscando skins remotas:', e);
+    } finally {
+      isSearchingRemote = false;
+    }
+  }
+
+  async function handleDownloadToLocalLibrary(rSkin: RemotePublicSkinModel) {
+    if (downloadingRemoteIds.has(rSkin.id)) return;
+    downloadingRemoteIds.add(rSkin.id);
+    downloadingRemoteIds = new Set(downloadingRemoteIds);
+    try {
+      const b64 = await invoke<string>('download_remote_skin_cmd', {
+        textureUrl: rSkin.texture_url,
+      });
+      const localId = `skin_${rSkin.id.replace(/[^a-zA-Z0-9_-]/g, '')}_${Date.now()}`;
+      onSaveSkin({
+        id: localId,
+        name: rSkin.name,
+        model_type: (rSkin.model_type === 'slim' ? 'slim' : 'classic'),
+        png_data_base64: b64,
+      });
+      savedRemoteIds.add(rSkin.id);
+      savedRemoteIds = new Set(savedRemoteIds);
+      onRefreshSkins();
+    } catch (e) {
+      alert(`Error descargando skin remota: ${e}`);
+    } finally {
+      downloadingRemoteIds.delete(rSkin.id);
+      downloadingRemoteIds = new Set(downloadingRemoteIds);
+    }
+  }
+
+  async function handleLoadRemoteInEditor(rSkin: RemotePublicSkinModel) {
+    if (downloadingRemoteIds.has(rSkin.id)) return;
+    downloadingRemoteIds.add(rSkin.id);
+    downloadingRemoteIds = new Set(downloadingRemoteIds);
+    try {
+      const b64 = await invoke<string>('download_remote_skin_cmd', {
+        textureUrl: rSkin.texture_url,
+      });
+      skinName = rSkin.name;
+      modelType = rSkin.model_type === 'slim' ? 'slim' : 'classic';
+      activeView = 'editor';
+      setTimeout(() => {
+        if (!canvasEl) return;
+        const ctx = canvasEl.getContext('2d');
+        if (!ctx) return;
+        const img = new Image();
+        img.onload = () => {
+          ctx.clearRect(0, 0, 64, 64);
+          ctx.drawImage(img, 0, 0, 64, 64);
+          pushHistory();
+          init3DViewer();
+        };
+        img.src = b64;
+      }, 60);
+    } catch (e) {
+      alert(`Error cargando skin remota en el editor: ${e}`);
+    } finally {
+      downloadingRemoteIds.delete(rSkin.id);
+      downloadingRemoteIds = new Set(downloadingRemoteIds);
+    }
+  }
 
   // Canvas y 3D
   let canvasEl = $state<HTMLCanvasElement | undefined>(undefined);
@@ -544,7 +628,7 @@
         </div>
 
         <div class="flex items-center gap-2">
-          <!-- Pestañas de Vista: Editor vs Biblioteca -->
+          <!-- Pestañas de Vista: Editor vs Biblioteca Local vs Catálogo Público Remoto -->
           <div class="flex bg-obsidian-900 border border-obsidian-750 p-0.5 rounded-lg mr-2">
             <button
               type="button"
@@ -558,8 +642,16 @@
               onclick={() => { activeView = 'library'; onRefreshSkins(); }}
               class="px-2.5 py-1 text-xs font-bold rounded-md transition flex items-center gap-1.5 {activeView === 'library' ? 'bg-omni-indigo text-white shadow' : 'text-slate-400 hover:text-white'}"
             >
-              <span>Biblioteca Guardada</span>
+              <span>Biblioteca Local</span>
               <span class="text-[10px] px-1 py-0.2 rounded-full bg-black/40 font-mono text-omni-cyan">{localSkins.length}</span>
+            </button>
+            <button
+              type="button"
+              onclick={() => { activeView = 'remote'; if (remoteSkins.length === 0) searchRemoteSkins(1); }}
+              class="px-2.5 py-1 text-xs font-bold rounded-md transition flex items-center gap-1.5 {activeView === 'remote' ? 'bg-omni-indigo text-white shadow' : 'text-slate-400 hover:text-white'}"
+            >
+              <Globe class="w-3.5 h-3.5 text-emerald-400" />
+              <span>Explorar Catálogo Público</span>
             </button>
           </div>
 
@@ -605,13 +697,22 @@
                 </p>
               </div>
 
-              <button
-                type="button"
-                onclick={() => { activeView = 'editor'; setTimeout(init3DViewer, 50); }}
-                class="px-3.5 py-1.5 bg-omni-indigo hover:bg-omni-indigo/80 text-white font-bold rounded-lg text-xs transition flex items-center gap-1.5 shadow"
-              >
-                <Paintbrush class="w-3.5 h-3.5" /> Crear / Editar Nueva Skin
-              </button>
+              <div class="flex items-center gap-2">
+                <button
+                  type="button"
+                  onclick={() => { activeView = 'remote'; if (remoteSkins.length === 0) searchRemoteSkins(1); }}
+                  class="px-3.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 font-bold rounded-lg text-xs transition flex items-center gap-1.5 shadow"
+                >
+                  <Globe class="w-3.5 h-3.5 text-emerald-400" /> Explorar Catálogo Público Online
+                </button>
+                <button
+                  type="button"
+                  onclick={() => { activeView = 'editor'; setTimeout(init3DViewer, 50); }}
+                  class="px-3.5 py-1.5 bg-omni-indigo hover:bg-omni-indigo/80 text-white font-bold rounded-lg text-xs transition flex items-center gap-1.5 shadow"
+                >
+                  <Paintbrush class="w-3.5 h-3.5" /> Crear / Editar Nueva Skin
+                </button>
+              </div>
             </div>
 
             {#if localSkins.length === 0}
@@ -727,6 +828,177 @@
                     </div>
                   </div>
                 {/each}
+              </div>
+            {/if}
+          </div>
+        </div>
+      {:else if activeView === 'remote'}
+        <!-- VISTA CATÁLOGO REMOTO PÚBLICO DE SKINS (MINESKIN + MOJANG) -->
+        <div class="flex-1 bg-obsidian-950 p-6 overflow-y-auto">
+          <div class="max-w-5xl mx-auto space-y-5">
+            <!-- Header y Buscador Remoto -->
+            <div class="p-4 rounded-2xl bg-obsidian-900/90 border border-obsidian-750/90 space-y-3 shadow-md">
+              <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div>
+                  <h3 class="text-base font-bold text-white flex items-center gap-2">
+                    <Globe class="w-4 h-4 text-emerald-400" />
+                    Catálogo Público Remoto de Skins (MineSkin & Mojang)
+                  </h3>
+                  <p class="text-xs text-slate-400 mt-0.5">
+                    Busca por temática, personaje o nombre de jugador oficial y descárgalas en 1 clic a tu Biblioteca Local.
+                  </p>
+                </div>
+
+                <div class="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onclick={() => { activeView = 'library'; onRefreshSkins(); }}
+                    class="px-3 py-1.5 rounded-lg bg-obsidian-800 hover:bg-obsidian-750 text-slate-200 border border-obsidian-700 text-xs font-bold transition flex items-center gap-1.5"
+                  >
+                    <span>Ir a Mi Biblioteca ({localSkins.length})</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Barra de Búsqueda + Tags Rápidos -->
+              <div class="flex flex-col sm:flex-row gap-2">
+                <div class="relative flex-1">
+                  <Search class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    bind:value={remoteSearchQuery}
+                    onkeydown={(e) => { if (e.key === 'Enter') searchRemoteSkins(1); }}
+                    placeholder="Buscar skins por tema (ej: knight, anime, cyberpunk, demon) o jugador Mojang (ej: ThaukS, Technoblade)..."
+                    class="w-full bg-obsidian-950 border border-obsidian-700 rounded-xl pl-9 pr-3 py-2 text-xs text-white focus:outline-none focus:border-omni-cyan"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onclick={() => searchRemoteSkins(1)}
+                  disabled={isSearchingRemote}
+                  class="px-4 py-2 rounded-xl bg-gradient-to-r from-omni-indigo to-omni-cyan hover:brightness-110 text-white font-bold text-xs transition flex items-center justify-center gap-1.5 shadow disabled:opacity-50"
+                >
+                  {#if isSearchingRemote}
+                    <RotateCw class="w-3.5 h-3.5 animate-spin" /> Buscando...
+                  {:else}
+                    <Search class="w-3.5 h-3.5" /> Consultar Catálogo
+                  {/if}
+                </button>
+              </div>
+
+              <!-- Etiquetas Rápidas de Categorías Populares -->
+              <div class="flex flex-wrap items-center gap-1.5 pt-1 text-[11px]">
+                <span class="text-slate-400 font-semibold mr-1">Tendencias:</span>
+                {#each [
+                  { label: '🔥 Recientes', q: '' },
+                  { label: '⚔️ Caballero (Knight)', q: 'knight' },
+                  { label: '👑 Rey (King)', q: 'king' },
+                  { label: '🥷 Ninja / Samurai', q: 'samurai' },
+                  { label: '🤖 Cyberpunk', q: 'cyber' },
+                  { label: '🐉 Dragón', q: 'dragon' },
+                  { label: '🧙 Mago (Mage)', q: 'mage' },
+                  { label: '🐷 Technoblade', q: 'Technoblade' },
+                ] as tag}
+                  <button
+                    type="button"
+                    onclick={() => { remoteSearchQuery = tag.q; searchRemoteSkins(1); }}
+                    class="px-2.5 py-1 rounded-lg border text-[11px] font-medium transition {remoteSearchQuery === tag.q ? 'bg-omni-cyan/20 border-omni-cyan text-omni-cyan font-bold' : 'bg-obsidian-950 border-obsidian-800 text-slate-300 hover:border-obsidian-600'}"
+                  >
+                    {tag.label}
+                  </button>
+                {/each}
+              </div>
+            </div>
+
+            <!-- Resultados del Catálogo Remoto -->
+            {#if isSearchingRemote}
+              <div class="py-20 text-center space-y-3">
+                <RotateCw class="w-8 h-8 text-omni-cyan animate-spin mx-auto" />
+                <p class="text-xs font-bold text-slate-300">Consultando bibliotecas públicas remotas de skins...</p>
+              </div>
+            {:else if remoteSkins.length === 0}
+              <div class="text-center py-14 bg-obsidian-900/50 border border-obsidian-800 rounded-2xl p-8 space-y-2">
+                <p class="text-sm font-bold text-white">No se encontraron resultados para "{remoteSearchQuery}"</p>
+                <p class="text-xs text-slate-400">Prueba con otra palabra clave en inglés (ej. warrior, hoodie, astronaut) o el nombre exacto de un jugador de Minecraft.</p>
+              </div>
+            {:else}
+              <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {#each remoteSkins as rSkin (rSkin.id)}
+                  {@const isDownloading = downloadingRemoteIds.has(rSkin.id)}
+                  {@const isSaved = savedRemoteIds.has(rSkin.id)}
+                  <div class="p-3 bg-obsidian-900/80 border border-obsidian-750/80 hover:border-omni-cyan/60 rounded-xl flex flex-col justify-between space-y-3 transition shadow-sm group">
+                    <div class="space-y-2">
+                      <div class="h-36 bg-obsidian-950 rounded-lg border border-obsidian-800 flex items-center justify-center p-2 overflow-hidden relative" style="background: repeating-conic-gradient(#111420 0% 25%, #181c2e 0% 50%) 50% / 10px 10px;">
+                        <img
+                          src={rSkin.preview_url}
+                          alt={rSkin.name}
+                          class="max-h-full max-w-full object-contain filter drop-shadow group-hover:scale-105 transition"
+                          onerror={(e) => { (e.currentTarget as HTMLImageElement).src = rSkin.texture_url; }}
+                        />
+                        <span class="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-obsidian-900/90 border border-obsidian-750 text-emerald-400">
+                          {rSkin.source}
+                        </span>
+                      </div>
+
+                      <div class="min-w-0">
+                        <h4 class="text-xs font-bold text-white truncate" title={rSkin.name}>{rSkin.name}</h4>
+                        <span class="text-[10px] text-slate-400 font-mono truncate block">Textura Oficial 64x64</span>
+                      </div>
+                    </div>
+
+                    <!-- Acciones: Guardar en Biblioteca Local o Abrir en Editor 3D -->
+                    <div class="space-y-1.5 pt-2 border-t border-obsidian-800">
+                      <button
+                        type="button"
+                        disabled={isDownloading}
+                        onclick={() => handleDownloadToLocalLibrary(rSkin)}
+                        class="w-full py-1.5 px-2 rounded-lg text-[11px] font-bold transition flex items-center justify-center gap-1.5 shadow-sm {isSaved ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-300' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}"
+                      >
+                        {#if isDownloading}
+                          <RotateCw class="w-3.5 h-3.5 animate-spin" />
+                          <span>Descargando...</span>
+                        {:else if isSaved}
+                          <Check class="w-3.5 h-3.5" />
+                          <span>Guardada en Biblioteca</span>
+                        {:else}
+                          <Download class="w-3.5 h-3.5" />
+                          <span>Guardar en Biblioteca</span>
+                        {/if}
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={isDownloading}
+                        onclick={() => handleLoadRemoteInEditor(rSkin)}
+                        class="w-full py-1 px-2 rounded-lg bg-obsidian-800 hover:bg-obsidian-750 border border-obsidian-700 text-slate-300 hover:text-white text-[10px] font-semibold transition flex items-center justify-center gap-1"
+                      >
+                        <Paintbrush class="w-3 h-3 text-omni-cyan" />
+                        <span>Abrir en Editor 3D</span>
+                      </button>
+                    </div>
+                  </div>
+                {/each}
+              </div>
+
+              <!-- Paginación -->
+              <div class="flex items-center justify-between pt-4 border-t border-obsidian-800">
+                <button
+                  type="button"
+                  disabled={remotePage <= 1 || isSearchingRemote}
+                  onclick={() => searchRemoteSkins(remotePage - 1)}
+                  class="px-3.5 py-1.5 rounded-lg bg-obsidian-900 hover:bg-obsidian-800 border border-obsidian-750 text-xs font-bold text-slate-300 disabled:opacity-40 transition"
+                >
+                  ← Página Anterior
+                </button>
+                <span class="text-xs font-mono text-slate-400">Página <strong class="text-white">{remotePage}</strong></span>
+                <button
+                  type="button"
+                  disabled={isSearchingRemote}
+                  onclick={() => searchRemoteSkins(remotePage + 1)}
+                  class="px-3.5 py-1.5 rounded-lg bg-obsidian-900 hover:bg-obsidian-800 border border-obsidian-750 text-xs font-bold text-slate-300 disabled:opacity-40 transition"
+                >
+                  Siguiente Página →
+                </button>
               </div>
             {/if}
           </div>

@@ -6,7 +6,7 @@ use omnicraft_v2_lib::{
     JavaService, JavaRuntime, LaunchEngine, ProcessInfo, ProfileSyncService,
     ModrinthClient, ModSearchResult, ModrinthDownloadService,
     CurseForgeService, UnifiedSearchResult, MojangManifestService, GameVersionEntry,
-    LocalSkinModel, SkinBridgeService,
+    LocalSkinModel, SkinBridgeService, RemotePublicSkin,
     ContentToolsService, WorldSaveInfo, LogOutput,
     ContentManagerService, ContentItem,
     CrashParserService, CrashDiagnosis, ServerBuilderService,
@@ -251,6 +251,21 @@ async fn fetch_mojang_skin_cmd(
     username_or_uuid: String,
 ) -> Result<(String, String), String> {
     SkinBridgeService::fetch_mojang_skin(&username_or_uuid).await
+}
+
+#[tauri::command]
+async fn search_remote_skins_cmd(
+    query: String,
+    page: u32,
+) -> Result<Vec<RemotePublicSkin>, String> {
+    SkinBridgeService::search_remote_public_skins(&query, page).await
+}
+
+#[tauri::command]
+async fn download_remote_skin_cmd(
+    texture_url: String,
+) -> Result<String, String> {
+    SkinBridgeService::download_remote_skin_base64(&texture_url).await
 }
 
 #[tauri::command]
@@ -1321,6 +1336,8 @@ fn main() {
             inject_offline_skin_to_instance,
             upload_skin_to_mojang,
             fetch_mojang_skin_cmd,
+            search_remote_skins_cmd,
+            download_remote_skin_cmd,
             list_instance_worlds,
             backup_instance_world,
             get_instance_logs,

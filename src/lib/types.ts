@@ -107,6 +107,15 @@ export interface LocalSkinModel {
   texture_hash?: string | null;
 }
 
+export interface RemotePublicSkinModel {
+  id: string;
+  name: string;
+  source: string;
+  texture_url: string;
+  preview_url: string;
+  model_type: 'classic' | 'slim' | string;
+}
+
 export interface WorldSaveModel {
   folder_name: string;
   display_name: string;
