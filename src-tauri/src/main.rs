@@ -169,14 +169,27 @@ async fn get_all_game_versions(state: State<'_, AppState>) -> Result<Vec<GameVer
     }
 
     // 2. Si no hay caché, consultar directamente el manifiesto de Mojang y cachear
-    let list = MojangManifestService::fetch_all_versions().await?;
-    let to_save: Vec<(String, String, Option<String>)> = list
-        .iter()
-        .map(|e| (e.id.clone(), e.version_type.clone(), e.release_time.clone()))
-        .collect();
-    state.db.save_cached_versions(&to_save).ok();
+    if let Ok(list) = MojangManifestService::fetch_all_versions().await {
+        let to_save: Vec<(String, String, Option<String>)> = list
+            .iter()
+            .map(|e| (e.id.clone(), e.version_type.clone(), e.release_time.clone()))
+            .collect();
+        state.db.save_cached_versions(&to_save).ok();
+        return Ok(list);
+    }
 
-    Ok(list)
+    // 3. Fallback sin conexión para dispositivos nuevos donde aún no hay caché en SQLite
+    Ok(vec![
+        GameVersionEntry { id: "1.21.4".to_string(), version_type: "release".to_string(), release_time: None },
+        GameVersionEntry { id: "1.21.1".to_string(), version_type: "release".to_string(), release_time: None },
+        GameVersionEntry { id: "1.20.4".to_string(), version_type: "release".to_string(), release_time: None },
+        GameVersionEntry { id: "1.20.1".to_string(), version_type: "release".to_string(), release_time: None },
+        GameVersionEntry { id: "1.19.4".to_string(), version_type: "release".to_string(), release_time: None },
+        GameVersionEntry { id: "1.18.2".to_string(), version_type: "release".to_string(), release_time: None },
+        GameVersionEntry { id: "1.16.5".to_string(), version_type: "release".to_string(), release_time: None },
+        GameVersionEntry { id: "1.12.2".to_string(), version_type: "release".to_string(), release_time: None },
+        GameVersionEntry { id: "1.8.9".to_string(), version_type: "release".to_string(), release_time: None },
+    ])
 }
 
 #[tauri::command]
@@ -556,9 +569,7 @@ async fn launch_instance_cmd(
 
     let player_uuid = resolved_uuid.as_deref().or(uuid.as_deref());
 
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let mut root_path = PathBuf::from(&home);
-    root_path.push(".omnicraft_studio");
+    let mut root_path = DbManager::resolve_omnicraft_dir();
     root_path.push("instances");
     root_path.push(&inst.folder);
 
@@ -606,8 +617,7 @@ async fn launch_instance_cmd(
             .or_else(|| javas.first())
             .map(|j| j.path.clone())
             .unwrap_or_else(|| {
-                let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-                let local_java = PathBuf::from(&home).join(".local/bin/java");
+                let local_java = DbManager::resolve_user_home().join(".local/bin/java");
                 if local_java.exists() {
                     local_java.to_string_lossy().to_string()
                 } else {
@@ -679,9 +689,7 @@ async fn install_mod_to_instance(
     mod_name: String,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let mut mc_dir = PathBuf::from(&home);
-    mc_dir.push(".omnicraft_studio");
+    let mut mc_dir = DbManager::resolve_omnicraft_dir();
     mc_dir.push("instances");
     mc_dir.push(&folder_name);
     mc_dir.push(".minecraft");
@@ -830,9 +838,7 @@ fn check_instance_compatibility(
     mc_version: String,
     loader: String,
 ) -> CompatibilityReport {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let mut mc_dir = PathBuf::from(home);
-    mc_dir.push(".omnicraft_studio");
+    let mut mc_dir = DbManager::resolve_omnicraft_dir();
     mc_dir.push("instances");
     mc_dir.push(folder_name);
     mc_dir.push(".minecraft");
@@ -854,9 +860,7 @@ fn list_shared_cache_items(
     category: String,
 ) -> Vec<SharedCacheItemInfo> {
     let cache_dir = SharedStorageService::get_category_cache_dir(&category);
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let instance_cat_dir = PathBuf::from(home)
-        .join(".omnicraft_studio")
+    let instance_cat_dir = DbManager::resolve_omnicraft_dir()
         .join("instances")
         .join(folder_name)
         .join(".minecraft")
@@ -897,9 +901,7 @@ fn link_shared_item_to_instance(
         return Err(format!("El archivo no existe en la caché compartida: {}", filename));
     }
 
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let instance_file = PathBuf::from(&home)
-        .join(".omnicraft_studio")
+    let instance_file = DbManager::resolve_omnicraft_dir()
         .join("instances")
         .join(&folder_name)
         .join(".minecraft")
@@ -1040,9 +1042,7 @@ fn logout_user_cmd(username: String, state: State<AppState>) -> Result<(), Strin
 
 #[tauri::command]
 fn open_folder_cmd(folder_name: String, subfolder: Option<String>) -> Result<(), String> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let mut path = PathBuf::from(home);
-    path.push(".omnicraft_studio");
+    let mut path = DbManager::resolve_omnicraft_dir();
     path.push("instances");
     path.push(&folder_name);
     path.push(".minecraft");
@@ -1050,10 +1050,27 @@ fn open_folder_cmd(folder_name: String, subfolder: Option<String>) -> Result<(),
         path.push(sub);
     }
     std::fs::create_dir_all(&path).map_err(|e| e.to_string())?;
-    std::process::Command::new("xdg-open")
-        .arg(&path)
-        .spawn()
-        .map_err(|e| e.to_string())?;
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 
@@ -1085,8 +1102,8 @@ fn open_url(url: String) -> Result<(), String> {
 
 #[tauri::command]
 fn list_available_icons() -> Vec<String> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let mut p = PathBuf::from(&home);
+    let home = DbManager::resolve_user_home();
+    let mut p = home.clone();
     p.push("Games");
     p.push("Omnicraft-v2");
     p.push("icons");
@@ -1101,7 +1118,7 @@ fn list_available_icons() -> Vec<String> {
         }
     }
     if res.is_empty() {
-        let mut p_alt = PathBuf::from(&home);
+        let mut p_alt = home;
         p_alt.push("Proyectos");
         p_alt.push("Omnicraft-v2");
         p_alt.push("public");
@@ -1115,14 +1132,41 @@ fn list_available_icons() -> Vec<String> {
             }
         }
     }
+    if res.is_empty() {
+        res = vec![
+            "crafting_table.png".to_string(),
+            "grass_block.png".to_string(),
+            "diamond_sword.png".to_string(),
+            "diamond_block.png".to_string(),
+            "emerald_block.png".to_string(),
+            "gold_block.png".to_string(),
+            "obsidian.png".to_string(),
+            "furnace.png".to_string(),
+            "chest.png".to_string(),
+            "tnt.png".to_string(),
+            "book.png".to_string(),
+            "ender_pearl.png".to_string(),
+            "golden_apple.png".to_string(),
+            "netherite_pickaxe.png".to_string(),
+            "iron_sword.png".to_string(),
+            "gold_sword.png".to_string(),
+            "creeper.png".to_string(),
+            "enderman.png".to_string(),
+            "skeleton.png".to_string(),
+            "zombie.png".to_string(),
+            "steve.png".to_string(),
+            "alex.png".to_string(),
+            "icon.png".to_string(),
+        ];
+    }
     res.sort();
+    res.dedup();
     res
 }
 
 #[tauri::command]
 fn list_launchers() -> Vec<String> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let mut p = PathBuf::from(&home);
+    let mut p = DbManager::resolve_user_home();
     p.push("Games");
     p.push("Omnicraft-v2");
     p.push("lanzadores");
@@ -1221,9 +1265,7 @@ fn restore_instance_world(folder_name: String, backup_filename: String) -> Resul
 
 #[tauri::command]
 fn scan_mod_file(folder_name: String, filename: String) -> Result<ScanResult, String> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let mut p = PathBuf::from(home);
-    p.push(".omnicraft_studio");
+    let mut p = DbManager::resolve_omnicraft_dir();
     p.push("instances");
     p.push(folder_name);
     p.push(".minecraft");
@@ -1235,9 +1277,7 @@ fn scan_mod_file(folder_name: String, filename: String) -> Result<ScanResult, St
 
 #[tauri::command]
 fn quarantine_mod_file(folder_name: String, filename: String) -> Result<String, String> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let mut p = PathBuf::from(home);
-    p.push(".omnicraft_studio");
+    let mut p = DbManager::resolve_omnicraft_dir();
     p.push("instances");
     p.push(folder_name);
     p.push(".minecraft");

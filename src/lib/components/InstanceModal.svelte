@@ -204,6 +204,18 @@
 
       <!-- Scrollable Form Body -->
       <div class="p-6 overflow-y-auto space-y-5 text-xs text-slate-200">
+        <!-- Guía rápida de creación y edición de instancia -->
+        <div class="p-3.5 rounded-xl bg-indigo-950/30 border border-indigo-500/30 text-[11px] text-slate-300 space-y-1">
+          <p class="font-bold text-omni-cyan flex items-center gap-1.5">
+            <span>📘</span> Guía Rápida: ¿Cómo configurar tu Instancia?
+          </p>
+          <ul class="list-disc list-inside text-slate-400 space-y-0.5">
+            <li><strong>1. Tipo y Nombre:</strong> Elige <em>Instancia Cliente</em> para jugar o <em>Servidor Dedicado</em> para alojar partidas multijugador, y ponle un nombre único.</li>
+            <li><strong>2. Versión y Modloader:</strong> Selecciona la versión de Minecraft y el cargador de mods (<strong>Fabric</strong> recomendado para mayor rendimiento y shaders, o desactívalo para <strong>Vanilla</strong> puro).</li>
+            <li><strong>3. Cuenta Vinculada:</strong> La instancia marcada como <strong>Default</strong> usa tu cuenta principal (incluyendo Microsoft Oficial); las demás instancias usan cuentas Non-Premium independientes.</li>
+          </ul>
+        </div>
+
         <!-- Propósito / Tipo -->
         <div class="grid grid-cols-2 gap-3">
           <button

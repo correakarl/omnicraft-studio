@@ -64,6 +64,20 @@ jobs:
       - name: Instalar dependencias del frontend con pnpm
         run: pnpm install
 
+      - name: Generar y aplicar certificado Authenticode X.509 en Windows
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $oid = '2.5.29.37={text}1.3.6.1.5.5.7.3.3'
+          $basic = '2.5.29.19={text}'
+          $cert = New-SelfSignedCertificate -Type Custom -Subject 'CN=Karl Correa (Omnicraft Studio), O=Omnicraft Studio, C=US' -KeyUsage DigitalSignature -FriendlyName 'Omnicraft Studio Code Signing' -CertStoreLocation 'Cert:\CurrentUser\My' -TextExtension @($oid, $basic)
+          $thumbprint = $cert.Thumbprint
+          Write-Host "Certificado Authenticode generado con Thumbprint: $thumbprint"
+          $confPath = 'src-tauri/tauri.conf.json'
+          $conf = Get-Content $confPath -Raw | ConvertFrom-Json
+          $conf.bundle.windows | Add-Member -NotePropertyName 'certificateThumbprint' -NotePropertyValue $thumbprint -Force
+          $conf | ConvertTo-Json -Depth 10 | Set-Content $confPath -Encoding UTF8
+
       - name: Compilar y Empaquetar con Tauri Action
         uses: tauri-apps/tauri-action@v0
         env:
