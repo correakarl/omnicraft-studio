@@ -98,6 +98,21 @@ jobs:
             ### 💖 Apoyo y Donaciones:
             - [Hacer una donación vía PayPal](https://www.paypal.com/ncp/payment/KR4E3PNGJEXQY)
             - Página de donación: `donate/index.html`
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+  publish-release:
+    needs: build-and-release
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Publicar Release Oficial (una vez subidos todos los instaladores)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REL_ID=$(gh api repos/${{ github.repository }}/releases --jq '.[] | select(.tag_name == "${{ github.ref_name }}") | .id' | head -n 1)
+          if [ -n "$REL_ID" ]; then
+            gh api -X PATCH repos/${{ github.repository }}/releases/$REL_ID -F draft=false
+          fi
