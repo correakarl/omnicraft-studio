@@ -74,19 +74,338 @@ pub struct DbManager {
 }
 
 impl DbManager {
+    /// Resuelve el directorio personal del usuario de forma multiplataforma (Linux, macOS y Windows)
+    pub fn resolve_user_home() -> PathBuf {
+        std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .or_else(|_| {
+                let drive = std::env::var("HOMEDRIVE").unwrap_or_default();
+                let path = std::env::var("HOMEPATH").unwrap_or_default();
+                if !drive.is_empty() || !path.is_empty() {
+                    Ok(format!("{}{}", drive, path))
+                } else {
+                    Err(std::env::VarError::NotPresent)
+                }
+            })
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("."))
+    }
+
+    /// Resuelve y asegura el directorio raíz `~/.omnicraft_studio` y todas sus subcarpetas operativas
+    pub fn resolve_omnicraft_dir() -> PathBuf {
+        let base = Self::resolve_user_home().join(".omnicraft_studio");
+        fs::create_dir_all(&base).ok();
+        for sub in ["instances", "runtimes", "shared_cache", "backups", "exports", "cache", "logs"] {
+            fs::create_dir_all(base.join(sub)).ok();
+        }
+        base
+    }
+
     pub fn new() -> Self {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        let mut path = PathBuf::from(home);
-        path.push(".omnicraft_studio");
-        fs::create_dir_all(&path).ok();
-        path.push("omnicraft.db");
-        Self { db_path: path }
+        let base = Self::resolve_omnicraft_dir();
+        let db_path = base.join("omnicraft.db");
+        let manager = Self { db_path };
+        if let Err(e) = manager.ensure_initialized() {
+            eprintln!("[Omnicraft DB] Error inicializando o reparando esquema SQLite: {}", e);
+        }
+        manager
     }
 
     pub fn get_connection(&self) -> Result<Connection> {
+        if let Some(parent) = self.db_path.parent() {
+            fs::create_dir_all(parent).ok();
+        }
         let conn = Connection::open(&self.db_path)?;
         conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")?;
         Ok(conn)
+    }
+
+    /// Inicializa y migra de forma idempotente todas las tablas, índices, columnas nuevas y semillas por defecto.
+    /// Si una instalación previa falló o está en un dispositivo nuevo en limpio, repara y prepara todo automáticamente.
+    pub fn ensure_initialized(&self) -> Result<()> {
+        let conn = self.get_connection()?;
+
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS system_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS instances (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                folder TEXT NOT NULL UNIQUE,
+                icon TEXT NOT NULL,
+                mc_version TEXT NOT NULL,
+                loader_type TEXT NOT NULL,
+                executable_type TEXT NOT NULL,
+                launcher_jar TEXT,
+                custom_executable_path TEXT,
+                java_selection_mode TEXT DEFAULT 'auto',
+                custom_java_path TEXT,
+                window_launch_behavior TEXT DEFAULT 'minimize',
+                ram_min_mb INTEGER DEFAULT 1024,
+                ram_max_mb INTEGER DEFAULT 4096,
+                jvm_preset TEXT,
+                jvm_args TEXT,
+                width INTEGER DEFAULT 1280,
+                height INTEGER DEFAULT 720,
+                notes TEXT,
+                last_played TEXT DEFAULT 'Nunca',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                instance_type TEXT DEFAULT 'client',
+                server_port INTEGER DEFAULT 25565,
+                assigned_username TEXT DEFAULT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_instances_mc_version ON instances(mc_version);
+
+            CREATE TABLE IF NOT EXISTS accounts (
+                id TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                account_type TEXT NOT NULL,
+                uuid TEXT,
+                active INTEGER DEFAULT 0,
+                data_json TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS search_cache_index (
+                project_id TEXT PRIMARY KEY,
+                source TEXT NOT NULL,
+                title TEXT NOT NULL,
+                author TEXT,
+                project_type TEXT NOT NULL,
+                description TEXT,
+                downloads INTEGER DEFAULT 0,
+                icon_url TEXT,
+                loaders_json TEXT,
+                versions_json TEXT,
+                web_url TEXT,
+                cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_search_title ON search_cache_index(title);
+            CREATE INDEX IF NOT EXISTS idx_search_type_source ON search_cache_index(project_type, source);
+            CREATE INDEX IF NOT EXISTS idx_search_downloads ON search_cache_index(downloads DESC);
+
+            CREATE TABLE IF NOT EXISTS favorites (
+                project_id TEXT PRIMARY KEY,
+                source TEXT NOT NULL,
+                title TEXT NOT NULL,
+                author TEXT,
+                project_type TEXT,
+                description TEXT,
+                downloads INTEGER DEFAULT 0,
+                icon_url TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS official_recommendations (
+                id TEXT PRIMARY KEY,
+                category TEXT NOT NULL,
+                title TEXT NOT NULL,
+                author TEXT,
+                description TEXT,
+                badge TEXT,
+                web_url TEXT NOT NULL,
+                icon_url TEXT,
+                downloads INTEGER DEFAULT 0,
+                rank INTEGER DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS instance_mods (
+                instance_id TEXT NOT NULL,
+                filename TEXT NOT NULL,
+                mod_id TEXT,
+                name TEXT NOT NULL,
+                version TEXT,
+                loader TEXT,
+                description TEXT,
+                active INTEGER DEFAULT 1,
+                size_bytes INTEGER DEFAULT 0,
+                depends_json TEXT,
+                conflicts_json TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (instance_id, filename)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_inst_mods_lookup ON instance_mods(instance_id, active);
+            CREATE INDEX IF NOT EXISTS idx_inst_mods_id ON instance_mods(mod_id);
+
+            CREATE TABLE IF NOT EXISTS mojang_versions_cache (
+                version_id TEXT PRIMARY KEY,
+                version_type TEXT NOT NULL,
+                release_time TEXT,
+                url TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS play_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                instance_id TEXT NOT NULL,
+                started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                ended_at TIMESTAMP,
+                duration_seconds INTEGER DEFAULT 0,
+                exit_code INTEGER DEFAULT 0,
+                notes TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_play_sessions_inst ON play_sessions(instance_id);
+
+            CREATE TABLE IF NOT EXISTS local_skins (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                model_type TEXT DEFAULT 'classic',
+                png_data_base64 TEXT NOT NULL,
+                texture_hash TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );"
+        )?;
+
+        // Migraciones defensivas para bases de datos creadas con esquemas parciales o anteriores
+        let _ = conn.execute("ALTER TABLE instances ADD COLUMN instance_type TEXT DEFAULT 'client'", []);
+        let _ = conn.execute("ALTER TABLE instances ADD COLUMN server_port INTEGER DEFAULT 25565", []);
+        let _ = conn.execute("ALTER TABLE instances ADD COLUMN assigned_username TEXT DEFAULT NULL", []);
+        let _ = conn.execute("ALTER TABLE accounts ADD COLUMN data_json TEXT", []);
+        let _ = conn.execute("ALTER TABLE accounts ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP", []);
+
+        // Semillas de configuración por defecto
+        conn.execute(
+            "INSERT OR IGNORE INTO system_settings (key, value) VALUES ('ui_mode', 'basic')",
+            [],
+        )?;
+        conn.execute(
+            "INSERT OR IGNORE INTO system_settings (key, value) VALUES ('app_lang', 'es')",
+            [],
+        )?;
+
+        // Semillas de recomendaciones oficiales si la tabla está vacía
+        let rec_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM official_recommendations", [], |r| r.get(0))
+            .unwrap_or(0);
+        if rec_count == 0 {
+            let default_recs = [
+                (
+                    "1KVo5zza",
+                    "modpack",
+                    "Fabulously Optimized",
+                    "RobotKoer",
+                    "El paquete oficial más popular de optimización masiva para Minecraft. Multiplica tus FPS y añade soporte fluido de shaders.",
+                    "⭐ Rendimiento Top 1",
+                    "https://modrinth.com/modpack/fabulously-optimized",
+                    "https://cdn.modrinth.com/data/1KVo5zza/d8152911f8fd5d7e9a8c499fe89045af81fe816e_96.webp",
+                    19_000_000i64,
+                    1i32,
+                ),
+                (
+                    "5FFgwNNP",
+                    "modpack",
+                    "Cobblemon Official Modpack",
+                    "Cobblemon Team",
+                    "El modpack oficial de Cobblemon. Captura, entrena y vive una aventura Pokémon completa en mundos de Minecraft.",
+                    "🐾 Oficial Cobblemon",
+                    "https://modrinth.com/modpack/cobblemon-official",
+                    "https://cdn.modrinth.com/data/5FFgwNNP/e7f9ee2e9d361623847853fe2ddce42f519ee64f.png",
+                    11_300_000i64,
+                    2i32,
+                ),
+                (
+                    "l9m9tuPN",
+                    "modpack",
+                    "Zombie Invade 100 Days",
+                    "flk",
+                    "Experiencia épica de supervivencia contra hordas masivas de zombis inteligentes, armas y defensa táctica.",
+                    "🧟 Supervivencia Extrema",
+                    "https://modrinth.com/modpack/zombie-invade-100-days",
+                    "https://cdn.modrinth.com/data/l9m9tuPN/fefe3f67c37744344d100638452c7bf059d586a1_96.webp",
+                    15_200_000i64,
+                    3i32,
+                ),
+                (
+                    "Jkb29YJU",
+                    "modpack",
+                    "COBBLEVERSE - Pokemon Adventure",
+                    "Ender_Gamer",
+                    "Universo Cobblemon expandido con misiones, gimnasios personalizados, estructuras épicas y optimización gráfica.",
+                    "🌍 Gran Aventura",
+                    "https://modrinth.com/modpack/cobbleverse",
+                    "https://cdn.modrinth.com/data/Jkb29YJU/581ecf54530972afb18a04660afd820f2f24f6c7.png",
+                    7_100_000i64,
+                    4i32,
+                ),
+                (
+                    "rQiXwLhB",
+                    "modpack",
+                    "BattleArmory TACZ",
+                    "TACZ Team",
+                    "Pack oficial de acción táctica con animaciones realistas de armas de fuego Timeless and Classics Zero y vehículos.",
+                    "🔫 Armamento Táctico",
+                    "https://modrinth.com/modpack/battlearmory-tacz",
+                    "https://cdn.modrinth.com/data/rQiXwLhB/1f8cafea7dcd59dff7dc58cad7a17ae0424847a2_96.webp",
+                    3_700_000i64,
+                    5i32,
+                ),
+            ];
+            for (id, cat, title, author, desc, badge, url, icon, dl, rank) in default_recs {
+                let _ = conn.execute(
+                    "INSERT OR IGNORE INTO official_recommendations
+                     (id, category, title, author, description, badge, web_url, icon_url, downloads, rank)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                    params![id, cat, title, author, desc, badge, url, icon, dl, rank],
+                );
+            }
+        }
+
+        // Semilla de cuenta offline inicial si no existe ninguna cuenta en un dispositivo nuevo
+        let acc_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM accounts", [], |r| r.get(0))
+            .unwrap_or(0);
+        if acc_count == 0 {
+            let _ = conn.execute(
+                "INSERT OR IGNORE INTO accounts (id, username, account_type, uuid, active)
+                 VALUES ('Player', 'Player', 'offline', '00000000-0000-0000-0000-000000000001', 1)",
+                [],
+            );
+        }
+
+        // Semilla de instancia por defecto si no existe ninguna instancia en un dispositivo nuevo
+        let inst_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM instances", [], |r| r.get(0))
+            .unwrap_or(0);
+        if inst_count == 0 {
+            let base_dir = Self::resolve_omnicraft_dir();
+            let mc_dir = base_dir.join("instances").join("Omnicraft-Default").join(".minecraft");
+            fs::create_dir_all(mc_dir.join("mods")).ok();
+            fs::create_dir_all(mc_dir.join("config")).ok();
+            fs::create_dir_all(mc_dir.join("shaderpacks")).ok();
+            fs::create_dir_all(mc_dir.join("resourcepacks")).ok();
+            fs::create_dir_all(mc_dir.join("saves")).ok();
+
+            let _ = conn.execute(
+                "INSERT OR IGNORE INTO instances (
+                    id, name, folder, icon, mc_version, loader_type, executable_type,
+                    launcher_jar, java_selection_mode, window_launch_behavior,
+                    ram_min_mb, ram_max_mb, jvm_preset, jvm_args, width, height,
+                    instance_type, server_port, assigned_username
+                ) VALUES (
+                    'omnicraft-default', 'Omnicraft Client', 'Omnicraft-Default', 'crafting_table.png',
+                    '1.21.4', 'Fabric', 'direct',
+                    'Motor Nativo Directo (Recomendado - Sin launchers externos)', 'auto', 'minimize',
+                    1024, 4096, 'aikar', '', 1280, 720,
+                    'client', 25565, NULL
+                )",
+                [],
+            );
+            let _ = conn.execute(
+                "INSERT OR IGNORE INTO system_settings (key, value) VALUES ('default_instance_id', 'omnicraft-default')",
+                [],
+            );
+        }
+
+        Ok(())
     }
 
     pub fn get_all_instances(&self) -> Result<Vec<InstanceModel>> {
@@ -423,9 +742,7 @@ impl DbManager {
         let id = name.trim().replace(' ', "-").to_lowercase();
         let folder = name.trim().to_string();
 
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        let mut inst_dir = PathBuf::from(&home);
-        inst_dir.push(".omnicraft_studio");
+        let mut inst_dir = Self::resolve_omnicraft_dir();
         inst_dir.push("instances");
         inst_dir.push(&folder);
         let mut mc_dir = inst_dir.clone();
@@ -504,11 +821,9 @@ impl DbManager {
         conn.execute("DELETE FROM instances WHERE id = ?1", params![id])?;
 
         if let Some(folder_name) = folder {
-            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-            let mut inst_dir = PathBuf::from(home);
-            inst_dir.push(".omnicraft_studio");
-            inst_dir.push("instances");
-            inst_dir.push(folder_name);
+            let inst_dir = Self::resolve_omnicraft_dir()
+                .join("instances")
+                .join(folder_name);
             fs::remove_dir_all(inst_dir).ok();
         }
         Ok(())
@@ -604,10 +919,7 @@ impl DbManager {
         }
 
         // Limpiar posibles skins inyectadas en .minecraft/CustomSkinLoader/LocalSkin/skins/{username}.png de todas las instancias
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        let instances_dir = PathBuf::from(home)
-            .join(".omnicraft_studio")
-            .join("instances");
+        let instances_dir = Self::resolve_omnicraft_dir().join("instances");
 
         if let Ok(entries) = fs::read_dir(instances_dir) {
             for entry in entries.flatten() {

@@ -25,8 +25,7 @@ pub struct SharedStorageService;
 impl SharedStorageService {
     /// Obtiene el directorio base de la caché compartida
     pub fn get_shared_cache_dir() -> PathBuf {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        PathBuf::from(home).join(".omnicraft_studio").join("shared_cache")
+        crate::db::DbManager::resolve_omnicraft_dir().join("shared_cache")
     }
 
     /// Obtiene el subdirectorio para una categoría específica ("mods", "shaderpacks", "resourcepacks", "modpacks")

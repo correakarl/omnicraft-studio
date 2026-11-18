@@ -58,7 +58,30 @@
   let msDeviceFlow = $state<MicrosoftDeviceCodeModel | null>(null);
   let isStartingMsAuth = $state(false);
   let isPollingMs = $state(false);
+  let codeCopied = $state(false);
   let msPollingTimer: any = null;
+
+  async function openExternalBrowser(url: string) {
+    try {
+      await invoke('open_url', { url });
+    } catch (e) {
+      window.open(url, '_blank');
+    }
+  }
+
+  async function copyUserCode(code: string) {
+    try {
+      await navigator.clipboard.writeText(code);
+      codeCopied = true;
+      setTimeout(() => { codeCopied = false; }, 2500);
+    } catch (_) {}
+  }
+
+  async function copyAndOpenMicrosoftLink() {
+    if (!msDeviceFlow) return;
+    await copyUserCode(msDeviceFlow.user_code);
+    await openExternalBrowser(msDeviceFlow.verification_uri || 'https://www.microsoft.com/link');
+  }
 
   async function startMicrosoftLogin() {
     isStartingMsAuth = true;
@@ -66,6 +89,7 @@
     try {
       const res = await invoke<MicrosoftDeviceCodeModel>('start_ms_auth_flow');
       msDeviceFlow = res;
+      await copyUserCode(res.user_code);
       pollToken(res.device_code, res.interval || 5);
     } catch (e) {
       alert(`Error al iniciar flujo Microsoft: ${e}`);
@@ -229,42 +253,76 @@
           </div>
 
           {#if accountType === 'offline'}
-            <div class="flex gap-2">
-              <input
-                type="text"
-                bind:value={newUsername}
-                placeholder="Nombre de usuario (ej: Notch o Alex)"
-                class="flex-1 bg-obsidian-900 border border-obsidian-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-omni-cyan"
-              />
-              <button
-                type="button"
-                onclick={handleCreateOffline}
-                class="px-4 py-2 bg-omni-indigo hover:bg-omni-indigo/80 text-white font-bold rounded-lg transition"
-              >
-                Guardar
-              </button>
+            <div class="p-3 bg-obsidian-900/80 rounded-lg border border-obsidian-750 space-y-2">
+              <p class="text-[11px] text-slate-300 leading-relaxed">
+                💡 <strong>Modo Non-Premium (Offline):</strong> Crea cualquier perfil local sin contraseña para partidas individuales, mundos con mods o servidores compatibles. Puedes tener múltiples cuentas offline para abrir varias instancias al mismo tiempo.
+              </p>
+              <div class="flex gap-2">
+                <input
+                  type="text"
+                  bind:value={newUsername}
+                  onkeydown={(e) => e.key === 'Enter' && handleCreateOffline()}
+                  placeholder="Escribe tu nombre de jugador (ej: Stitch, Alex, Karl)..."
+                  class="flex-1 bg-obsidian-950 border border-obsidian-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-omni-cyan"
+                />
+                <button
+                  type="button"
+                  onclick={handleCreateOffline}
+                  class="px-4 py-2 bg-omni-indigo hover:bg-omni-indigo/80 text-white font-bold rounded-lg transition shadow"
+                >
+                  Guardar Perfil
+                </button>
+              </div>
             </div>
           {:else}
-            <div class="p-3.5 bg-obsidian-900 rounded-lg border border-obsidian-750 space-y-3">
-              <p class="text-[11px] text-slate-300">
-                Flujo OAuth2 Device Code: no requiere ingresar contraseña en el lanzador. Abre el enlace oficial de Microsoft e introduce el código temporal.
-              </p>
+            <div class="p-3.5 bg-obsidian-900 rounded-xl border border-emerald-500/30 space-y-3">
+              <div class="space-y-1.5">
+                <span class="text-[11px] font-bold text-emerald-400 flex items-center gap-1.5">
+                  <Shield class="w-3.5 h-3.5" /> Autenticación Oficial de Microsoft / Xbox Live / Mojang
+                </span>
+                <p class="text-[11px] text-slate-300 leading-relaxed">
+                  Por tu seguridad, Omnicraft <strong>nunca pide tu contraseña</strong> dentro de la aplicación. Utilizamos el estándar oficial <em>OAuth2 Device Code</em> de Microsoft:
+                </p>
+                <ol class="text-[11px] text-slate-400 space-y-1 list-decimal list-inside bg-obsidian-950/70 p-2.5 rounded-lg border border-obsidian-800">
+                  <li>Haz clic en <strong>"1. Generar Código de Vinculación"</strong> aquí abajo.</li>
+                  <li>Pulsa <strong>"2. Copiar Código y Abrir Navegador Oficial"</strong> (se abrirá tu navegador predeterminado del sistema en <span class="text-omni-cyan font-mono">microsoft.com/link</span>).</li>
+                  <li>Pega el código de 8 caracteres, autoriza el inicio de sesión en tu cuenta de Microsoft y esta ventana se conectará sola automáticamente.</li>
+                </ol>
+              </div>
 
               {#if msDeviceFlow}
-                <div class="p-3 bg-obsidian-950 rounded-lg border border-emerald-500/30 space-y-2">
-                  <div class="flex items-center justify-between text-xs font-bold text-white">
-                    <span>Código de Vinculación:</span>
-                    <span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-mono text-sm tracking-widest select-all">
-                      {msDeviceFlow.user_code}
-                    </span>
+                <div class="p-3.5 bg-obsidian-950 rounded-xl border border-emerald-500/40 space-y-3">
+                  <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-slate-200">Tu Código Temporal:</span>
+                    <div class="flex items-center gap-2">
+                      <span class="px-3 py-1 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-mono text-base font-bold tracking-widest select-all">
+                        {msDeviceFlow.user_code}
+                      </span>
+                      <button
+                        type="button"
+                        onclick={() => msDeviceFlow && copyUserCode(msDeviceFlow.user_code)}
+                        class="px-2.5 py-1 rounded-lg bg-obsidian-800 hover:bg-obsidian-700 text-slate-200 text-[11px] font-semibold border border-obsidian-700 transition"
+                      >
+                        {codeCopied ? '✓ Copiado' : 'Copiar'}
+                      </button>
+                    </div>
                   </div>
-                  <p class="text-[11px] text-slate-400">
-                    Ingresa en <a href={msDeviceFlow.verification_uri} target="_blank" class="text-omni-cyan underline font-bold">microsoft.com/link</a> e introduce el código de arriba.
-                  </p>
+
+                  <button
+                    type="button"
+                    onclick={copyAndOpenMicrosoftLink}
+                    class="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold text-xs shadow-lg shadow-emerald-600/25 flex items-center justify-center gap-2 transition active:scale-95"
+                  >
+                    <ExternalLink class="w-4 h-4" />
+                    <span>2. Copiar Código y Abrir microsoft.com/link en el Navegador</span>
+                  </button>
+
                   {#if isPollingMs}
-                    <div class="flex items-center gap-2 text-[10px] text-amber-300 font-mono pt-1">
-                      <RefreshCw class="w-3 h-3 animate-spin text-omni-cyan" />
-                      <span>Esperando confirmación en Microsoft...</span>
+                    <div class="flex items-center justify-between text-[11px] text-amber-300 font-mono pt-1 bg-amber-500/10 px-2.5 py-1.5 rounded-lg border border-amber-500/20">
+                      <div class="flex items-center gap-2">
+                        <RefreshCw class="w-3.5 h-3.5 animate-spin text-omni-cyan" />
+                        <span>Esperando a que autorices el código en tu navegador...</span>
+                      </div>
                     </div>
                   {/if}
                 </div>
@@ -273,12 +331,12 @@
                   type="button"
                   onclick={startMicrosoftLogin}
                   disabled={isStartingMsAuth}
-                  class="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg transition flex items-center justify-center gap-2 text-xs shadow-md shadow-emerald-600/25 disabled:opacity-50"
+                  class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition flex items-center justify-center gap-2 text-xs shadow-md shadow-emerald-600/25 disabled:opacity-50"
                 >
                   {#if isStartingMsAuth}
-                    <RefreshCw class="w-4 h-4 animate-spin" /> Conectando con Microsoft...
+                    <RefreshCw class="w-4 h-4 animate-spin" /> Conectando con servidores de Microsoft...
                   {:else}
-                    <Key class="w-4 h-4" /> Generar Código de Inicio de Sesión
+                    <Key class="w-4 h-4" /> 1. Generar Código de Vinculación Oficial
                   {/if}
                 </button>
               {/if}

@@ -27,49 +27,67 @@ pub struct MicrosoftAccountSession {
 pub struct JreProvisionerService;
 
 impl JreProvisionerService {
-    /// Descarga e instala automáticamente el runtime JRE de Temurin (Adoptium) para la versión solicitada (8, 17 o 21)
+    /// Descarga e instala automáticamente el runtime JRE de Temurin (Adoptium) para la versión solicitada (8, 17 o 21) en Linux, Windows y macOS
     pub async fn install_temurin_jre(major_version: u32) -> Result<String, String> {
         let client = reqwest::Client::builder()
-            .user_agent("OmnicraftLauncherStudio/1.0.0")
+            .user_agent("OmnicraftStudio/1.1.0")
             .build()
             .map_err(|e| e.to_string())?;
 
+        let os_slug = if cfg!(target_os = "windows") {
+            "windows"
+        } else if cfg!(target_os = "macos") {
+            "mac"
+        } else {
+            "linux"
+        };
+
+        let arch_slug = if cfg!(target_arch = "aarch64") {
+            "aarch64"
+        } else {
+            "x64"
+        };
+
         let url = format!(
-            "https://api.adoptium.net/v3/binary/latest/{}/ga/linux/x64/jre/hotspot/normal/eclipse?project=jdk",
-            major_version
+            "https://api.adoptium.net/v3/binary/latest/{}/ga/{}/{}/jre/hotspot/normal/eclipse?project=jdk",
+            major_version, os_slug, arch_slug
         );
 
         let resp = client.get(&url).send().await.map_err(|e| format!("Error conectando con Adoptium: {}", e))?;
         if !resp.status().is_success() {
-            return Err(format!("Adoptium API retornó {}", resp.status()));
+            return Err(format!("Adoptium API retornó {} para {}/{}", resp.status(), os_slug, arch_slug));
         }
 
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        let mut runtimes_dir = PathBuf::from(&home);
-        runtimes_dir.push(".omnicraft_studio");
-        runtimes_dir.push("runtimes");
+        let runtimes_dir = crate::db::DbManager::resolve_omnicraft_dir().join("runtimes");
         let target_jre_dir = runtimes_dir.join(format!("java-{}", major_version));
 
         fs::create_dir_all(&target_jre_dir).map_err(|e| e.to_string())?;
 
-        let tar_path = runtimes_dir.join(format!("jre-{}.tar.gz", major_version));
+        let archive_ext = if cfg!(target_os = "windows") { "zip" } else { "tar.gz" };
+        let archive_path = runtimes_dir.join(format!("jre-{}.{}", major_version, archive_ext));
         let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
-        fs::write(&tar_path, &bytes).map_err(|e| e.to_string())?;
+        fs::write(&archive_path, &bytes).map_err(|e| e.to_string())?;
 
-        // Descomprimir usando el tar nativo de Linux
         let status = Command::new("tar")
-            .arg("-xzf")
-            .arg(&tar_path)
+            .arg("-xf")
+            .arg(&archive_path)
             .arg("-C")
             .arg(&target_jre_dir)
             .arg("--strip-components=1")
             .status()
-            .map_err(|e| format!("Error ejecutando tar: {}", e))?;
+            .map_err(|e| format!("Error extrayendo archivo de Java con tar: {}", e))?;
 
-        fs::remove_file(&tar_path).ok();
+        fs::remove_file(&archive_path).ok();
 
         if status.success() {
-            let java_bin = target_jre_dir.join("bin").join("java");
+            let java_exe = if cfg!(target_os = "windows") { "java.exe" } else { "java" };
+            let mut java_bin = target_jre_dir.join("bin").join(java_exe);
+            if !java_bin.exists() {
+                let mac_bin = target_jre_dir.join("Contents").join("Home").join("bin").join(java_exe);
+                if mac_bin.exists() {
+                    java_bin = mac_bin;
+                }
+            }
             Ok(format!("Java {} instalado exitosamente en {}", major_version, java_bin.display()))
         } else {
             Err("Fallo al descomprimir el runtime de Java".to_string())

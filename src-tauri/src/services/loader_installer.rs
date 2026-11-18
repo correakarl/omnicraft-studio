@@ -29,10 +29,9 @@ impl LoaderInstallerService {
         let profile_json = prof_resp.text().await.map_err(|e| e.to_string())?;
 
         // 3. Guardar en .minecraft/versions/fabric-loader-{loader_version}-{mc_version}/
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let base_omni = crate::db::DbManager::resolve_omnicraft_dir();
         let version_id = format!("fabric-loader-{}-{}", loader_version, mc_version);
-        let mut target_dir = PathBuf::from(&home);
-        target_dir.push(".omnicraft_studio");
+        let mut target_dir = base_omni.clone();
         target_dir.push("instances");
         target_dir.push(folder_name);
         target_dir.push(".minecraft");
@@ -44,8 +43,7 @@ impl LoaderInstallerService {
         fs::write(target_file, profile_json).map_err(|e| e.to_string())?;
 
         // 4. Asegurar que la versión base de vanilla MC (inheritsFrom) exista en .minecraft/versions/
-        let mut vanilla_dir = PathBuf::from(&home);
-        vanilla_dir.push(".omnicraft_studio");
+        let mut vanilla_dir = base_omni;
         vanilla_dir.push("instances");
         vanilla_dir.push(folder_name);
         vanilla_dir.push(".minecraft");
@@ -107,9 +105,7 @@ impl LoaderInstallerService {
         let expected_sha256 = dl_obj["checksums"]["sha256"].as_str().unwrap_or("");
 
         // 3. Descargar el archivo JAR del servidor
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        let mut server_dir = PathBuf::from(home);
-        server_dir.push(".omnicraft_studio");
+        let mut server_dir = crate::db::DbManager::resolve_omnicraft_dir();
         server_dir.push("instances");
         server_dir.push(folder_name);
         server_dir.push(".minecraft");

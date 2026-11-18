@@ -30,9 +30,7 @@ pub struct ContentToolsService;
 impl ContentToolsService {
     /// Obtiene la ruta base al directorio `.minecraft` de una instancia
     pub fn get_instance_mc_dir(folder_name: &str) -> PathBuf {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        PathBuf::from(home)
-            .join(".omnicraft_studio")
+        crate::db::DbManager::resolve_omnicraft_dir()
             .join("instances")
             .join(folder_name)
             .join(".minecraft")
@@ -265,9 +263,7 @@ impl ContentToolsService {
             return Err("El directorio de la instancia no existe".to_string());
         }
 
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        let export_dir = PathBuf::from(home)
-            .join(".omnicraft_studio")
+        let export_dir = crate::db::DbManager::resolve_omnicraft_dir()
             .join("exports");
         fs::create_dir_all(&export_dir).map_err(|e| e.to_string())?;
 

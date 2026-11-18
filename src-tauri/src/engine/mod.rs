@@ -326,8 +326,7 @@ impl LaunchEngine {
         }
 
         if jar_to_run.is_none() {
-            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-            let mut launchers_dir = PathBuf::from(home);
+            let mut launchers_dir = crate::db::DbManager::resolve_user_home();
             launchers_dir.push("Games");
             launchers_dir.push("Omnicraft-v2");
             launchers_dir.push("lanzadores");

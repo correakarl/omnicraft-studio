@@ -171,9 +171,9 @@
   async function loadDataFromRust() {
     try {
       // Inicializar idioma i18n
-      currentLang = await i18n.init();
-      coreStatus = await invoke<string>('status');
-      instances = await invoke<InstanceModel[]>('get_instances');
+      currentLang = await i18n.init().catch(() => 'es');
+      coreStatus = await invoke<string>('status').catch(() => 'Motor nativo sincronizado y listo');
+      instances = await invoke<InstanceModel[]>('get_instances').catch(() => []);
       const savedDefId = await invoke<string | null>('get_default_instance_id').catch(() => null);
       if (instances.length > 0 && !selectedInstanceId) {
         if (savedDefId && instances.some(i => i.id === savedDefId)) {
@@ -183,13 +183,13 @@
           await invoke('set_default_instance_id', { instanceId: selectedInstanceId }).catch(() => {});
         }
       }
-      accounts = await invoke<AccountModel[]>('get_accounts');
-      javas = await invoke<JavaRuntime[]>('detect_javas');
-      availableIcons = await invoke<string[]>('list_available_icons');
-      launchers = await invoke<string[]>('list_launchers');
-      officialRecs = await invoke<RecommendationModel[]>('get_official_recs', { category: 'modpack' });
-      allGameVersions = await invoke<GameVersionEntry[]>('get_all_game_versions');
-      localSkins = await invoke<LocalSkinModel[]>('get_local_skins');
+      accounts = await invoke<AccountModel[]>('get_accounts').catch(() => []);
+      javas = await invoke<JavaRuntime[]>('detect_javas').catch(() => []);
+      availableIcons = await invoke<string[]>('list_available_icons').catch(() => ['crafting_table.png']);
+      launchers = await invoke<string[]>('list_launchers').catch(() => ['Motor Nativo Directo (Recomendado - Sin launchers externos)']);
+      officialRecs = await invoke<RecommendationModel[]>('get_official_recs', { category: 'modpack' }).catch(() => []);
+      allGameVersions = await invoke<GameVersionEntry[]>('get_all_game_versions').catch(() => []);
+      localSkins = await invoke<LocalSkinModel[]>('get_local_skins').catch(() => []);
 
       // Cargar modo de interfaz global (Básico / Avanzado)
       try {
@@ -203,7 +203,7 @@
       checkAppUpdates();
 
       // Cargar llaves de API guardadas si existen
-      const savedCfKey = await invoke<string | null>('get_api_key', { service: 'curseforge' });
+      const savedCfKey = await invoke<string | null>('get_api_key', { service: 'curseforge' }).catch(() => null);
       if (savedCfKey) curseforgeApiKey = savedCfKey;
 
       if (selectedInstanceId) {
@@ -1571,6 +1571,28 @@
             </button>
           </div>
 
+          <!-- Guía interactiva de gestión de instancias -->
+          <div class="p-3.5 rounded-xl bg-obsidian-900/70 border border-obsidian-750/80 text-xs text-slate-300 grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div class="flex items-start gap-2.5">
+              <span class="px-2 py-0.5 rounded bg-omni-indigo/20 text-omni-cyan font-bold text-[11px] shrink-0">1. Crear / Editar</span>
+              <p class="text-[11px] text-slate-400 leading-relaxed">
+                Usa <strong>"+ Nueva Instancia"</strong> arriba a la derecha para crear un entorno aislado, o el icono <strong>✏️ Lápiz</strong> en cualquier tarjeta para cambiar su versión, RAM, icono o Modloader.
+              </p>
+            </div>
+            <div class="flex items-start gap-2.5">
+              <span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold text-[11px] shrink-0">2. Cuenta Default</span>
+              <p class="text-[11px] text-slate-400 leading-relaxed">
+                Pulsa <strong>"Hacer Default"</strong> para que esa instancia sea la principal de la barra superior y se sincronice con tu cuenta activa (Microsoft Oficial o Non-Premium).
+              </p>
+            </div>
+            <div class="flex items-start gap-2.5">
+              <span class="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold text-[11px] shrink-0">3. Carpetas y Borrado</span>
+              <p class="text-[11px] text-slate-400 leading-relaxed">
+                El icono <strong>📁 Carpeta</strong> abre los archivos `.minecraft` de esa instancia y el icono <strong>🗑️ Papelera</strong> elimina la instancia y sus archivos cuando no esté en ejecución.
+              </p>
+            </div>
+          </div>
+
           <!-- PANEL DE MONITOREO DE TODAS LAS INSTANCIAS EN EJECUCIÓN ACTIVA -->
           {#if allRunningUsages.length > 0}
             <div class="p-4 rounded-2xl bg-gradient-to-br from-emerald-950/40 via-obsidian-900/80 to-obsidian-900/90 border border-emerald-500/30 shadow-lg space-y-3">
@@ -1946,6 +1968,27 @@
           {/if}
 
           <!-- Pestañas de Categoría: Mods | Shaders | Recursos + Buscador -->
+          <div class="p-3.5 rounded-xl bg-obsidian-900/70 border border-obsidian-750/80 text-xs text-slate-300 grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div class="flex items-start gap-2.5">
+              <span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold text-[11px] shrink-0">Activar / Desactivar</span>
+              <p class="text-[11px] text-slate-400 leading-relaxed">
+                Haz clic en el <strong>interruptor (Toggle)</strong> de la columna <em>Estado</em> para desactivar temporalmente un mod, shader o paquete de texturas (se renombra a <span class="font-mono text-slate-300">.disabled</span> sin borrarlo).
+              </p>
+            </div>
+            <div class="flex items-start gap-2.5">
+              <span class="px-2 py-0.5 rounded bg-rose-500/20 text-rose-400 font-bold text-[11px] shrink-0">Borrar o Auditar</span>
+              <p class="text-[11px] text-slate-400 leading-relaxed">
+                Usa el icono <strong>🛡️ Escudo</strong> para escanear un mod `.jar` en busca de malware (Fracturiser) o el icono <strong>🗑️ Papelera</strong> para borrarlo definitivamente de esta instancia.
+              </p>
+            </div>
+            <div class="flex items-start gap-2.5">
+              <span class="px-2 py-0.5 rounded bg-teal-500/20 text-teal-300 font-bold text-[11px] shrink-0">0 MB Duplicados</span>
+              <p class="text-[11px] text-slate-400 leading-relaxed">
+                Con el botón <strong>"Repositorio Compartido"</strong> puedes reutilizar al instante mods o shaders ya descargados en otras instancias sin volver a bajarlos.
+              </p>
+            </div>
+          </div>
+
           <div class="flex items-center justify-between gap-3 bg-obsidian-900/60 p-2.5 rounded-xl border border-obsidian-750/70">
             <div class="flex items-center gap-1.5 bg-obsidian-950 border border-obsidian-800 rounded-lg p-1">
               <button
@@ -2078,6 +2121,18 @@
       {:else if activeTab === 'store'}
         <!-- PESTAÑA TIENDA EN VIVO CON FILTROS EXPANSIVOS Y CURSEFORGE -->
         <div class="space-y-4 max-w-6xl">
+          <!-- Guía rápida de uso del catálogo e instalación -->
+          <div class="p-3.5 rounded-xl bg-obsidian-900/70 border border-obsidian-750/80 text-xs text-slate-300 flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div class="space-y-1">
+              <p class="font-bold text-omni-cyan flex items-center gap-1.5">
+                <span>🛒</span> ¿Cómo buscar e instalar Mods, Modpacks, Shaders y Resource Packs?
+              </p>
+              <p class="text-[11px] text-slate-400 leading-relaxed">
+                1. Escribe el nombre en el buscador y elige el tipo (<strong>Mods, Modpacks, Shaders o Recursos</strong>). • 2. Los filtros <strong>Auto</strong> ajustan la búsqueda automáticamente a tu instancia activa (<strong class="text-white">{currentInstance.name} — MC {currentInstance.mc_version} {currentInstance.loader_type}</strong>). • 3. Pulsa <strong>"Instalar"</strong> y el archivo se descargará y activará directo en la carpeta correspondiente de tu instancia.
+              </p>
+            </div>
+          </div>
+
           <!-- Filtros fila 1: Fuente, Búsqueda y Tipo -->
           <div class="flex items-center gap-3 bg-obsidian-900/60 p-3 rounded-xl border border-obsidian-750/70">
             <!-- Selector de Fuente (Multi-Repositorio) -->
@@ -2228,14 +2283,14 @@
                   </div>
                   <div class="flex items-center gap-2">
                     {#if item.web_url}
-                      <a
-                        href={item.web_url}
-                        target="_blank"
+                      <button
+                        type="button"
+                        onclick={() => item.web_url && openExternalUrl(item.web_url)}
                         class="flex items-center gap-1 text-xs text-slate-400 hover:text-white font-medium"
                       >
                         <span>Web</span>
                         <ExternalLink class="w-3 h-3" />
-                      </a>
+                      </button>
                     {/if}
                     <button
                       onclick={() => handleInstallMod(item)}

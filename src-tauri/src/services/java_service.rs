@@ -16,10 +16,12 @@ pub struct JavaService;
 impl JavaService {
     pub fn detect_all_javas() -> Vec<JavaRuntime> {
         let mut found = Vec::new();
-        let home = std::env::var("HOME").unwrap_or_default();
-        
-        // Rutas habituales en Linux y macOS
-        let candidate_dirs = vec![
+        let home = crate::db::DbManager::resolve_user_home().to_string_lossy().to_string();
+        let java_exe = if cfg!(windows) { "java.exe" } else { "java" };
+        let path_sep = if cfg!(windows) { ';' } else { ':' };
+
+        // Rutas habituales en Linux, macOS y Windows
+        let mut candidate_dirs = vec![
             "/usr/lib/jvm".to_string(),
             "/usr/lib64/jvm".to_string(),
             "/opt/java".to_string(),
@@ -29,11 +31,21 @@ impl JavaService {
             format!("{}/.minecraft/runtime", home),
             format!("{}/.local/share/runtimes", home),
         ];
+        if cfg!(windows) {
+            candidate_dirs.push("C:\\Program Files\\Eclipse Adoptium".to_string());
+            candidate_dirs.push("C:\\Program Files\\Java".to_string());
+            candidate_dirs.push("C:\\Program Files\\Microsoft".to_string());
+            candidate_dirs.push("C:\\Program Files\\Zulu".to_string());
+        }
+        if cfg!(target_os = "macos") {
+            candidate_dirs.push("/Library/Java/JavaVirtualMachines".to_string());
+            candidate_dirs.push(format!("{}/Library/Java/JavaVirtualMachines", home));
+        }
 
         // 1. Java en PATH
         if let Ok(path_var) = std::env::var("PATH") {
-            for dir in path_var.split(':') {
-                let bin = Path::new(dir).join("java");
+            for dir in path_var.split(path_sep) {
+                let bin = Path::new(dir).join(java_exe);
                 if bin.is_file() {
                     if let Some(rt) = Self::inspect_java(&bin) {
                         if !found.iter().any(|j: &JavaRuntime| j.path == rt.path) {
@@ -50,7 +62,13 @@ impl JavaService {
             if p.is_dir() {
                 if let Ok(entries) = std::fs::read_dir(p) {
                     for entry in entries.flatten() {
-                        let bin = entry.path().join("bin").join("java");
+                        let mut bin = entry.path().join("bin").join(java_exe);
+                        if !bin.is_file() {
+                            let mac_bin = entry.path().join("Contents").join("Home").join("bin").join(java_exe);
+                            if mac_bin.is_file() {
+                                bin = mac_bin;
+                            }
+                        }
                         if bin.is_file() {
                             if let Some(rt) = Self::inspect_java(&bin) {
                                 if !found.iter().any(|j: &JavaRuntime| j.path == rt.path) {

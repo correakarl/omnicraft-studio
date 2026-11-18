@@ -16,9 +16,7 @@ pub struct ContentManagerService;
 
 impl ContentManagerService {
     fn get_dir(folder_name: &str, category: &str) -> PathBuf {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        PathBuf::from(home)
-            .join(".omnicraft_studio")
+        crate::db::DbManager::resolve_omnicraft_dir()
             .join("instances")
             .join(folder_name)
             .join(".minecraft")
