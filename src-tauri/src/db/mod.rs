@@ -115,8 +115,28 @@ impl DbManager {
         if let Some(parent) = self.db_path.parent() {
             fs::create_dir_all(parent).ok();
         }
-        let conn = Connection::open(&self.db_path)?;
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")?;
+        let conn = match Connection::open(&self.db_path) {
+            Ok(c) => {
+                if c.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;").is_err() {
+                    // Si el archivo SQLite está corrupto o truncado, respaldar y recrear en limpio
+                    drop(c);
+                    let bak = self.db_path.with_extension("db.corrupt.bak");
+                    let _ = fs::rename(&self.db_path, bak);
+                    let fresh = Connection::open(&self.db_path)?;
+                    fresh.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")?;
+                    fresh
+                } else {
+                    c
+                }
+            }
+            Err(_) => {
+                let bak = self.db_path.with_extension("db.corrupt.bak");
+                let _ = fs::rename(&self.db_path, bak);
+                let fresh = Connection::open(&self.db_path)?;
+                fresh.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")?;
+                fresh
+            }
+        };
         Ok(conn)
     }
 
@@ -401,6 +421,64 @@ impl DbManager {
             );
             let _ = conn.execute(
                 "INSERT OR IGNORE INTO system_settings (key, value) VALUES ('default_instance_id', 'omnicraft-default')",
+                [],
+            );
+        }
+
+        // Semillas de skins oficiales (Steve 64x64 HD) si la biblioteca local está vacía
+        let skin_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM local_skins", [], |r| r.get(0))
+            .unwrap_or(0);
+        if skin_count == 0 {
+            let steve_b64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAFDUlEQVR42u2a20sUURzH97G0LKMotPuWbVpslj1olJXdjCgyisowsSjzgrB0gSKyC5UF1ZNQWEEQSBQ9dHsIe+zJ/+nXfM/sb/rN4ZwZ96LOrnPgyxzP/M7Z+X7OZc96JpEISfWrFhK0YcU8knlozeJKunE4HahEqSc2nF6zSEkCgGCyb+82enyqybtCZQWAzdfVVFgBJJNJn1BWFgC49/VpwGVlD0CaxQiA5HSYEwBM5sMAdKTqygcAG9+8coHKY/XXAZhUNgDYuBSPjJL/GkzVVhAEU5tqK5XZ7cnFtHWtq/TahdSw2l0HUisr1UKIWJQBAMehDuqiDdzndsP2EZECAG1ZXaWMwOCODdXqysLf++uXUGv9MhUHIByDOijjdiSAoH3ErANQD73C7TXXuGOsFj1d4YH4OTJAEy8y9Hd0mCaeZ5z8dfp88zw1bVyiYhCLOg1ZeAqC0ybaDttHRGME1DhDeVWV26u17lRAPr2+mj7dvULfHw2q65fhQRrLXKDfIxkau3ZMCTGIRR3URR5toU38HbaPiMwUcKfBAkoun09PzrbQ2KWD1JJaqswjdeweoR93rirzyCMBCmIQizqoizZkm2H7iOgAcHrMHbbV9KijkUYv7qOn55sdc4fo250e+vUg4329/Xk6QB/6DtOws+dHDGJRB3XRBve+XARt+4hIrAF4UAzbnrY0ve07QW8uHfB+0LzqanMM7qVb+3f69LJrD90/1axiEIs6qIs21BTIToewfcSsA+Bfb2x67OoR1aPPzu2i60fSNHRwCw221Suz0O3jO+jh6V1KyCMGse9721XdN5ePutdsewxS30cwuMjtC860T5JUKpXyKbSByUn7psi5l+juDlZYGh9324GcPKbkycaN3jUSAGxb46IAYPNZzW0AzgiQ5tVnzLUpUDCAbakMQXXrOtX1UMtHn+Q9/X5L4wgl7t37r85OSrx+TYl379SCia9KXjxRpiTjIZTBFOvrV1f8ty2eY/T7XJ81FQAwmA8ASH1ob68r5PnBsxA88/xAMh6SpqW4HRnLBrkOA9Xv5wPAZjAUgOkB+SHxgBgR0qSMh0zmZRsmwDJm1gFg2PMDIC8/nAHIMls8x8GgzOsG5WiaqREgYzDvpTwjLDy8NM15LpexDEA3LepjU8Z64my+8PtDCmUyRr+fFwA2J0eAFYA0AxgSgMmYBMZTwFQnO9RNAEaHOj2DXF5UADmvAToA2ftyxZYA5BqgmZZApDkdAK4mAKo8GzPlr8G8AehzMAyA/i1girUA0HtYB2CaIkUBEHQ/cBHSvwF0AKZFS5M0ZwMQtEaEAmhtbSUoDADH9ff3++QZ4o0I957e+zYAMt6wHkhzpjkuAcgpwNcpA7AZDLsvpwiuOkBvxygA6Bsvb0HlaeKIF2EbADZpGiGzBsA0gnwQHGOhW2snRpbpPexbAB2Z1oicAMQpTnGKU5ziFKc4xSlOcYpTnOIUpzgVmgo+XC324WfJAdDO/+ceADkCpuMFiFKbApEHkOv7BfzfXt+5gpT8V7rpfYJcDz+jAsB233r6yyBsJ0mlBCDofuBJkel4vOwBFPv8fyYAFPJ+wbSf/88UANNRVy4Awo6+Ig2gkCmgA5DHWjoA+X7AlM//owLANkX0w0359od++pvX8fdMAcj3/QJ9iJsAFPQCxHSnQt8vMJ3v2wCYpkhkAOR7vG7q4aCXoMoSgG8hFAuc/grMdAD4B/kHl9da7Ne9AAAAAElFTkSuQmCC";
+            let _ = conn.execute(
+                "INSERT OR IGNORE INTO local_skins (id, name, model_type, png_data_base64)
+                 VALUES ('official-steve', 'Steve (Oficial)', 'classic', ?1)",
+                params![steve_b64],
+            );
+        }
+
+        // Asegurar que todas las instancias registradas en SQLite tengan sus carpetas físicas creadas en disco
+        // y que exista una instancia por defecto válida y una cuenta activa
+        if let Ok(mut stmt) = conn.prepare("SELECT id, folder FROM instances") {
+            let base_dir = Self::resolve_omnicraft_dir();
+            if let Ok(rows) = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))) {
+                let mut first_id: Option<String> = None;
+                for row in rows.flatten() {
+                    if first_id.is_none() {
+                        first_id = Some(row.0.clone());
+                    }
+                    let mc_dir = base_dir.join("instances").join(&row.1).join(".minecraft");
+                    for sub in ["mods", "config", "shaderpacks", "resourcepacks", "saves", "versions"] {
+                        fs::create_dir_all(mc_dir.join(sub)).ok();
+                    }
+                }
+                if let Some(fid) = first_id {
+                    let has_valid_def: bool = conn
+                        .query_row(
+                            "SELECT EXISTS(SELECT 1 FROM system_settings s JOIN instances i ON s.value = i.id WHERE s.key = 'default_instance_id')",
+                            [],
+                            |r| r.get(0),
+                        )
+                        .unwrap_or(false);
+                    if !has_valid_def {
+                        let _ = conn.execute(
+                            "INSERT INTO system_settings (key, value) VALUES ('default_instance_id', ?1)
+                             ON CONFLICT(key) DO UPDATE SET value = ?1",
+                            params![fid],
+                        );
+                    }
+                }
+            }
+        }
+
+        // Garantizar que al menos una cuenta esté marcada como activa (active = 1)
+        let active_acc_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM accounts WHERE active = 1", [], |r| r.get(0))
+            .unwrap_or(0);
+        if active_acc_count == 0 {
+            let _ = conn.execute(
+                "UPDATE accounts SET active = 1 WHERE rowid = (SELECT MIN(rowid) FROM accounts)",
                 [],
             );
         }
