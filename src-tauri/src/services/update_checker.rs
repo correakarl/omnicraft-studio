@@ -168,6 +168,54 @@ impl UpdateCheckerService {
         Ok(dest_path.to_string_lossy().to_string())
     }
 
+    pub fn launch_installer_and_prepare_exit(installer_path: &str) -> Result<(), String> {
+        let path = PathBuf::from(installer_path);
+        if !path.exists() {
+            return Err(format!("El archivo instalador no existe en: {}", installer_path));
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            let lower = installer_path.to_lowercase();
+            if lower.ends_with(".msi") {
+                std::process::Command::new("msiexec")
+                    .args(["/i", installer_path])
+                    .spawn()
+                    .map_err(|e| format!("Error iniciando msiexec: {}", e))?;
+            } else {
+                std::process::Command::new("cmd")
+                    .args(["/C", "start", "", installer_path])
+                    .spawn()
+                    .map_err(|e| format!("Error ejecutando el instalador en Windows: {}", e))?;
+            }
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            std::process::Command::new("open")
+                .arg(&path)
+                .spawn()
+                .map_err(|e| format!("Error abriendo el instalador en macOS: {}", e))?;
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            let lower = installer_path.to_lowercase();
+            if lower.ends_with(".appimage") {
+                std::process::Command::new(&path)
+                    .spawn()
+                    .map_err(|e| format!("Error ejecutando AppImage: {}", e))?;
+            } else if let Some(parent) = path.parent() {
+                std::process::Command::new("xdg-open")
+                    .arg(parent)
+                    .spawn()
+                    .map_err(|e| format!("Error abriendo carpeta de descargas: {}", e))?;
+            }
+        }
+
+        Ok(())
+    }
+
     fn resolve_downloads_dir() -> PathBuf {
         if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
             let base = PathBuf::from(&home);

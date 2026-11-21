@@ -82,6 +82,7 @@
   let isUpdateModalOpen = $state(false);
   let isDownloadingUpdate = $state(false);
   let updateDownloadMessage = $state('');
+  let downloadedInstallerPath = $state('');
   let scanModResults = $state<Record<string, ScanResultModel>>({});
   let isScanningMod = $state<string | null>(null);
 
@@ -570,21 +571,36 @@
     }
   }
 
-  async function handleDownloadUpdateAsset(downloadUrl: string, filename: string) {
+  async function handleDownloadUpdateAsset(downloadUrl: string, filename: string, autoInstall: boolean = false) {
     if (isDownloadingUpdate) return;
     isDownloadingUpdate = true;
+    downloadedInstallerPath = '';
     updateDownloadMessage = `Descargando ${filename}...`;
     try {
       const savedPath = await invoke<string>('download_omnicraft_update_cmd', {
         downloadUrl,
         filename,
       });
+      downloadedInstallerPath = savedPath;
       updateDownloadMessage = `✅ Descargado en: ${savedPath}`;
+      if (autoInstall) {
+        await handleApplyUpdateAndExit(savedPath);
+      }
     } catch (e) {
       updateDownloadMessage = '';
       openExternalUrl(downloadUrl);
     } finally {
       isDownloadingUpdate = false;
+    }
+  }
+
+  async function handleApplyUpdateAndExit(installerPath: string) {
+    if (!installerPath) return;
+    updateDownloadMessage = '🚀 Iniciando instalador y cerrando Omnicraft Studio para permitir la actualización limpia...';
+    try {
+      await invoke('apply_omnicraft_update_and_exit_cmd', { installerPath });
+    } catch (e) {
+      alert(`No se pudo iniciar el instalador automáticamente: ${e}\nPuedes ejecutarlo manualmente desde: ${installerPath}`);
     }
   }
 
@@ -2785,25 +2801,30 @@
       </div>
 
       {#if appUpdate.recommended_asset}
-        <div class="p-3.5 rounded-xl bg-indigo-950/30 border border-indigo-500/30 flex items-center justify-between gap-3">
-          <div class="space-y-0.5">
-            <span class="text-[10px] font-bold uppercase tracking-wider text-omni-cyan block">
-              Instalador Recomendado para tu Sistema ({appUpdate.current_os?.toUpperCase() || 'Actual'})
-            </span>
-            <span class="text-xs font-bold text-white font-mono">{appUpdate.recommended_asset.name}</span>
-            <span class="text-[11px] text-slate-400 block">
-              Tamaño: {(appUpdate.recommended_asset.size_bytes / (1024 * 1024)).toFixed(1)} MB
-            </span>
+        <div class="p-3.5 rounded-xl bg-indigo-950/30 border border-indigo-500/30 space-y-2.5">
+          <div class="flex items-center justify-between gap-3">
+            <div class="space-y-0.5">
+              <span class="text-[10px] font-bold uppercase tracking-wider text-omni-cyan block">
+                Instalador Recomendado para tu Sistema ({appUpdate.current_os?.toUpperCase() || 'Actual'})
+              </span>
+              <span class="text-xs font-bold text-white font-mono">{appUpdate.recommended_asset.name}</span>
+              <span class="text-[11px] text-slate-400 block">
+                Tamaño: {(appUpdate.recommended_asset.size_bytes / (1024 * 1024)).toFixed(1)} MB
+              </span>
+            </div>
+            <button
+              type="button"
+              disabled={isDownloadingUpdate}
+              onclick={() => appUpdate?.recommended_asset && handleDownloadUpdateAsset(appUpdate.recommended_asset.download_url, appUpdate.recommended_asset.name, true)}
+              class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-emerald-600/25 transition shrink-0 disabled:opacity-50"
+            >
+              <Download class="w-4 h-4" />
+              <span>{isDownloadingUpdate ? 'Descargando...' : 'Descargar e Instalar (Cierra la App)'}</span>
+            </button>
           </div>
-          <button
-            type="button"
-            disabled={isDownloadingUpdate}
-            onclick={() => appUpdate?.recommended_asset && handleDownloadUpdateAsset(appUpdate.recommended_asset.download_url, appUpdate.recommended_asset.name)}
-            class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-emerald-600/25 transition shrink-0 disabled:opacity-50"
-          >
-            <Download class="w-4 h-4" />
-            <span>{isDownloadingUpdate ? 'Descargando...' : 'Sí, Descargar Ahora'}</span>
-          </button>
+          <p class="text-[10px] text-amber-300/90 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2.5 py-1.5 leading-relaxed">
+            ⚠️ <strong>Importante en Windows / macOS:</strong> Para poder sobrescribir la aplicación sin errores de archivo en uso, Omnicraft descargará el instalador, lo abrirá y <strong>se cerrará por completo automáticamente</strong> (incluyendo el icono de la bandeja del sistema).
+          </p>
         </div>
       {/if}
 
@@ -2832,8 +2853,17 @@
       {/if}
 
       {#if updateDownloadMessage}
-        <div class="px-3 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-mono">
-          {updateDownloadMessage}
+        <div class="px-3 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-mono flex items-center justify-between gap-2">
+          <span class="truncate">{updateDownloadMessage}</span>
+          {#if downloadedInstallerPath}
+            <button
+              type="button"
+              onclick={() => handleApplyUpdateAndExit(downloadedInstallerPath)}
+              class="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-sans font-bold text-[11px] shrink-0 transition"
+            >
+              Ejecutar y Cerrar App
+            </button>
+          {/if}
         </div>
       {/if}
 
