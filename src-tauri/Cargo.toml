@@ -1,6 +1,6 @@
 [package]
 name = "omnicraft-v2"
-version = "1.1.0"
+version = "1.1.2"
 description = "Omnicraft Studio - Suite Multiplataforma Nativa para Gestión de Instancias, Mods, Skins 3D y Servidores de Minecraft"
 authors = ["Karl Correa <karl.correa.88@gmail.com>"]
 license = "CC-BY-NC-SA-4.0"

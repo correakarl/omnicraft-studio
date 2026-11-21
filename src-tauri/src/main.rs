@@ -1298,6 +1298,18 @@ async fn download_omnicraft_update_cmd(download_url: String, filename: String) -
 }
 
 #[tauri::command]
+fn apply_omnicraft_update_and_exit_cmd(installer_path: String, app: tauri::AppHandle) -> Result<(), String> {
+    UpdateCheckerService::launch_installer_and_prepare_exit(&installer_path)?;
+    // Cerrar completamente Omnicraft Studio (incluyendo el proceso en la bandeja del sistema)
+    // para liberar el bloqueo de archivos en Windows y permitir la reinstalación limpia.
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(450));
+        app.exit(0);
+    });
+    Ok(())
+}
+
+#[tauri::command]
 fn get_system_ui_mode(state: State<AppState>) -> String {
     state.db.get_setting("ui_mode").unwrap_or(None).unwrap_or_else(|| "basic".to_string())
 }
@@ -1502,6 +1514,7 @@ fn main() {
             quarantine_mod_file,
             check_omnicraft_updates,
             download_omnicraft_update_cmd,
+            apply_omnicraft_update_and_exit_cmd,
             get_system_ui_mode,
             set_system_ui_mode,
             get_system_language,

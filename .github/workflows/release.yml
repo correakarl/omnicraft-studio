@@ -64,6 +64,22 @@ jobs:
       - name: Instalar dependencias del frontend con pnpm
         run: pnpm install
 
+      - name: Sincronizar versión del tag (${{ github.ref_name }}) en Cargo.toml, tauri.conf.json y package.json
+        if: startsWith(github.ref_name, 'v')
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}".TrimStart('v')
+          Write-Host "Sincronizando versión de compilación a: $ver"
+          $pkg = Get-Content 'package.json' -Raw | ConvertFrom-Json
+          $pkg.version = $ver
+          $pkg | ConvertTo-Json -Depth 10 | Set-Content 'package.json' -Encoding UTF8
+          $tconf = Get-Content 'src-tauri/tauri.conf.json' -Raw | ConvertFrom-Json
+          $tconf.version = $ver
+          $tconf | ConvertTo-Json -Depth 10 | Set-Content 'src-tauri/tauri.conf.json' -Encoding UTF8
+          $cargo = Get-Content 'src-tauri/Cargo.toml' -Raw
+          $cargo = [regex]::Replace($cargo, '(?m)^version\s*=\s*"[^"]+"', "version = `"$ver`"")
+          Set-Content 'src-tauri/Cargo.toml' $cargo -Encoding UTF8
+
       - name: Generar y aplicar certificado Authenticode X.509 en Windows
         if: matrix.platform == 'windows-latest'
         shell: pwsh
