@@ -599,18 +599,24 @@ async fn launch_instance_cmd(
     }
 
     // Resolver Java: seleccionar la versión idónea según la versión de Minecraft o configuración
-    let javas = JavaService::detect_all_javas();
+    // Si el dispositivo nuevo no tiene ningún Java instalado, auto-aprovisionar Temurin OpenJDK automáticamente
+    let preferred_version: u32 = if inst.mc_version.starts_with("1.16") || inst.mc_version.starts_with("1.12") || inst.mc_version.starts_with("1.8") || inst.mc_version.starts_with("1.7") {
+        8
+    } else if inst.mc_version.starts_with("1.17") || inst.mc_version.starts_with("1.18") || inst.mc_version.starts_with("1.19") || inst.mc_version.starts_with("1.20.1") || inst.mc_version.starts_with("1.20.2") || inst.mc_version.starts_with("1.20.4") {
+        17
+    } else {
+        21 // MC 1.20.5+ y launchers modernos
+    };
+
+    let mut javas = JavaService::detect_all_javas();
+    if javas.is_empty() && inst.java_selection_mode != "custom" {
+        let _ = JreProvisionerService::install_temurin_jre(preferred_version).await;
+        javas = JavaService::detect_all_javas();
+    }
+
     let java_bin = if inst.java_selection_mode == "custom" && inst.custom_java_path.is_some() {
         inst.custom_java_path.clone().unwrap()
     } else {
-        let preferred_version: u32 = if inst.mc_version.starts_with("1.16") || inst.mc_version.starts_with("1.12") || inst.mc_version.starts_with("1.8") || inst.mc_version.starts_with("1.7") {
-            8
-        } else if inst.mc_version.starts_with("1.17") || inst.mc_version.starts_with("1.18") || inst.mc_version.starts_with("1.19") || inst.mc_version.starts_with("1.20.1") || inst.mc_version.starts_with("1.20.2") || inst.mc_version.starts_with("1.20.4") {
-            17
-        } else {
-            21 // MC 1.20.5+ y launchers modernos
-        };
-
         javas.iter()
             .find(|j| j.version == preferred_version)
             .or_else(|| javas.iter().find(|j| j.version >= 17))
@@ -625,6 +631,24 @@ async fn launch_instance_cmd(
                 }
             })
     };
+
+    // Auto-reparación de versiones en instancias nuevas: si la carpeta versions/ está vacía o no contiene la versión configurada, aprovisionarla automáticamente
+    if inst.instance_type == "client" {
+        let versions_dir = mc_path.join("versions");
+        let has_any_version = versions_dir.exists()
+            && std::fs::read_dir(&versions_dir)
+                .map(|mut d| d.next().is_some())
+                .unwrap_or(false);
+        if !has_any_version {
+            if inst.loader_type.eq_ignore_ascii_case("fabric") {
+                let _ = LoaderInstallerService::install_fabric_loader(&inst.folder, &inst.mc_version).await;
+            } else {
+                let _ = LoaderInstallerService::install_vanilla_version(&inst.folder, &inst.mc_version).await;
+            }
+        }
+    } else if !mc_path.join("server.jar").exists() {
+        let _ = LoaderInstallerService::download_paper_server(&inst.folder, &inst.mc_version).await;
+    }
 
     // Sincronizar perfiles técnicos en launcher_profiles.json, .hmcl y SkinShuffle (Java, RAM, loader, MC version, cuenta y skin)
     if inst.instance_type == "client" {
@@ -1310,6 +1334,88 @@ fn apply_omnicraft_update_and_exit_cmd(installer_path: String, app: tauri::AppHa
 }
 
 #[tauri::command]
+fn self_heal_ecosystem_cmd(state: State<AppState>) -> Result<String, String> {
+    let base = DbManager::resolve_omnicraft_dir();
+    state.db.ensure_initialized().map_err(|e| format!("Error reparando SQLite: {}", e))?;
+    Ok(format!(
+        "Ecosistema verificado y autorreparado con éxito en '{}' (SQLite, carpetas de instancias, caché compartida, skins y semillas listas).",
+        base.display()
+    ))
+}
+
+#[tauri::command]
+fn uninstall_omnicraft_cmd(
+    remove_all_data: bool,
+    state: State<AppState>,
+    app: tauri::AppHandle,
+) -> Result<String, String> {
+    // 1. Detener cualquier instancia en ejecución
+    for proc_info in state.engine.get_active_instances() {
+        state.engine.terminate(&proc_info.instance_id);
+    }
+
+    // 2. Si el usuario eligió la Opción 2 (Eliminar todo lo relacionado al gestor), borrar ~/.omnicraft_studio
+    let omni_dir = DbManager::resolve_omnicraft_dir();
+    if remove_all_data && omni_dir.exists() {
+        let _ = std::fs::remove_dir_all(&omni_dir);
+    }
+
+    // 3. Lanzar el desinstalador nativo del sistema operativo y cerrar la aplicación para liberar archivos
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(install_dir) = exe_path.parent() {
+                let uninst = install_dir.join("uninstall.exe");
+                if uninst.exists() {
+                    let _ = std::process::Command::new("cmd")
+                        .args(["/C", "start", "", &uninst.to_string_lossy()])
+                        .spawn();
+                } else {
+                    let _ = std::process::Command::new("cmd")
+                        .args(["/C", "start", "ms-settings:appsfeatures"])
+                        .spawn();
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(exe_path) = std::env::current_exe() {
+            // Si corre dentro de /Applications/Omnicraft Studio.app/Contents/MacOS/...
+            if let Some(app_bundle) = exe_path.parent().and_then(|p| p.parent()).and_then(|p| p.parent()) {
+                if app_bundle.to_string_lossy().ends_with(".app") {
+                    let _ = std::process::Command::new("open")
+                        .arg("-R")
+                        .arg(app_bundle)
+                        .spawn();
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let home = DbManager::resolve_user_home();
+        let desktop_shortcut = home.join(".local/share/applications/omnicraft-v2.desktop");
+        if desktop_shortcut.exists() {
+            let _ = std::fs::remove_file(desktop_shortcut);
+        }
+    }
+
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        app.exit(0);
+    });
+
+    if remove_all_data {
+        Ok("Se han eliminado todos los datos, instancias y base de datos de ~/.omnicraft_studio y se está cerrando la aplicación.".to_string())
+    } else {
+        Ok("Tus instancias, mundos, skins y base de datos en ~/.omnicraft_studio se han conservado intactos. Cerrando aplicación para desinstalar el binario...".to_string())
+    }
+}
+
+#[tauri::command]
 fn get_system_ui_mode(state: State<AppState>) -> String {
     state.db.get_setting("ui_mode").unwrap_or(None).unwrap_or_else(|| "basic".to_string())
 }
@@ -1515,6 +1621,8 @@ fn main() {
             check_omnicraft_updates,
             download_omnicraft_update_cmd,
             apply_omnicraft_update_and_exit_cmd,
+            self_heal_ecosystem_cmd,
+            uninstall_omnicraft_cmd,
             get_system_ui_mode,
             set_system_ui_mode,
             get_system_language,

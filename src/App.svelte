@@ -604,6 +604,42 @@
     }
   }
 
+  let isHealingEcosystem = $state(false);
+  let healEcosystemMessage = $state('');
+  let isUninstallModalOpen = $state(false);
+  let isUninstalling = $state(false);
+
+  async function handleSelfHealEcosystem() {
+    if (isHealingEcosystem) return;
+    isHealingEcosystem = true;
+    healEcosystemMessage = '';
+    try {
+      const msg = await invoke<string>('self_heal_ecosystem_cmd');
+      healEcosystemMessage = `✅ ${msg}`;
+      await loadDataFromRust();
+    } catch (e) {
+      healEcosystemMessage = `⚠️ Error al autorreparar: ${e}`;
+    } finally {
+      isHealingEcosystem = false;
+    }
+  }
+
+  async function handleUninstallOmnicraft(removeAllData: boolean) {
+    if (isUninstalling) return;
+    const confirmMsg = removeAllData
+      ? '⚠️ ATENCIÓN: Has elegido ELIMINAR TODO LO RELACIONADO AL GESTOR.\n\nEsto borrará permanentemente todas tus instancias, mundos guardados, skins, base de datos (~/.omnicraft_studio) y desinstalará la aplicación.\n\n¿Estás completamente seguro de continuar?'
+      : '¿Deseas desinstalar la aplicación Omnicraft Studio CONSERVANDO todos tus archivos, instancias, mundos y configuraciones en ~/.omnicraft_studio?';
+    if (!confirm(confirmMsg)) return;
+
+    isUninstalling = true;
+    try {
+      await invoke<string>('uninstall_omnicraft_cmd', { removeAllData });
+    } catch (e) {
+      alert(`Error durante la desinstalación: ${e}`);
+      isUninstalling = false;
+    }
+  }
+
   async function handleScanMod(filename: string) {
     isScanningMod = filename;
     try {
@@ -2505,21 +2541,21 @@
             <p class="text-xs text-slate-400">{t('config_desc')}</p>
           </div>
 
-          <!-- Card de Selección de Idioma del Sistema (i18n Internacionalización) -->
-          <div class="p-5 rounded-2xl bg-obsidian-900/60 border border-obsidian-750/80 space-y-3">
-            <div class="flex items-center justify-between">
+          <!-- Card de Actualizaciones, Autorreparación y Desinstalación del Sistema -->
+          <div class="p-5 rounded-2xl bg-obsidian-900/60 border border-obsidian-750/80 space-y-4">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
               <div>
                 <h3 class="text-sm font-bold text-white flex items-center gap-2">
                   <Sparkles class="w-4 h-4 text-omni-cyan" />
-                  Actualizaciones Automáticas de Omnicraft Studio
+                  Actualizaciones, Autorreparación y Mantenimiento del Gestor
                 </h3>
                 <p class="text-xs text-slate-400 mt-0.5">
-                  Omnicraft comprueba automáticamente al iniciar si existe una versión nueva en el repositorio oficial de GitHub (<span class="font-mono text-slate-300">correakarl/omnicraft-studio</span>).
+                  Omnicraft comprueba actualizaciones al iniciar desde <span class="font-mono text-slate-300">correakarl/omnicraft-studio</span>, autorrepara su base de datos y directorios si faltan, y permite desinstalar conservando o borrando tus datos.
                 </p>
               </div>
-              <div class="flex items-center gap-2">
-                <span class="px-2.5 py-1 rounded-lg bg-obsidian-950 border border-obsidian-750 text-xs font-mono text-slate-300">
-                  Versión instalada: {appUpdate?.current_version || 'v1.0.0'}
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="px-2.5 py-1.5 rounded-lg bg-obsidian-950 border border-obsidian-750 text-xs font-mono text-slate-300">
+                  Versión: {appUpdate?.current_version || 'v1.1.3'}
                 </span>
                 <button
                   type="button"
@@ -2530,8 +2566,33 @@
                   <RotateCw class="w-3.5 h-3.5 {isCheckingUpdate ? 'animate-spin' : ''}" />
                   <span>{isCheckingUpdate ? 'Comprobando...' : 'Buscar Actualizaciones'}</span>
                 </button>
+                <button
+                  type="button"
+                  onclick={handleSelfHealEcosystem}
+                  disabled={isHealingEcosystem}
+                  class="px-3.5 py-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 font-bold text-xs flex items-center gap-1.5 transition disabled:opacity-50"
+                  title="Verifica y reconstruye tablas SQLite, carpetas de instancias, caché compartida y configuración inicial sin borrar tus partidas"
+                >
+                  <Wrench class="w-3.5 h-3.5" />
+                  <span>{isHealingEcosystem ? 'Reparando...' : 'Autorreparar Instalación'}</span>
+                </button>
+                <button
+                  type="button"
+                  onclick={() => isUninstallModalOpen = true}
+                  class="px-3.5 py-2 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/40 text-rose-300 font-bold text-xs flex items-center gap-1.5 transition"
+                  title="Opciones de desinstalación de Omnicraft Studio"
+                >
+                  <Trash2 class="w-3.5 h-3.5" />
+                  <span>Desinstalar...</span>
+                </button>
               </div>
             </div>
+
+            {#if healEcosystemMessage}
+              <div class="px-3.5 py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-mono">
+                {healEcosystemMessage}
+              </div>
+            {/if}
           </div>
 
           <!-- Card de Selección de Idioma del Sistema (i18n Internacionalización) -->
@@ -2890,6 +2951,78 @@
   </div>
 {/if}
 
+
+<!-- MODAL DESINSTALACIÓN CON 2 OPCIONES (CONSERVAR DATOS O ELIMINAR TODO) -->
+{#if isUninstallModalOpen}
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-150">
+    <div class="bg-obsidian-900 border border-obsidian-750/90 rounded-2xl w-full max-w-lg p-6 flex flex-col shadow-2xl space-y-4">
+      <div class="flex items-center justify-between border-b border-obsidian-750 pb-3">
+        <div class="flex items-center gap-2.5">
+          <AlertTriangle class="w-5 h-5 text-rose-400" />
+          <div>
+            <h3 class="text-sm font-bold text-white">Desinstalar Omnicraft Studio</h3>
+            <p class="text-[11px] text-slate-400">Elige cómo deseas proceder con tus archivos y configuraciones:</p>
+          </div>
+        </div>
+        <button onclick={() => isUninstallModalOpen = false} class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-obsidian-800">
+          <X class="w-4 h-4" />
+        </button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <!-- Opción 1: Conservar archivos y configuración -->
+        <button
+          type="button"
+          disabled={isUninstalling}
+          onclick={() => handleUninstallOmnicraft(false)}
+          class="w-full p-4 rounded-xl bg-obsidian-950 hover:bg-indigo-950/30 border border-obsidian-750 hover:border-omni-cyan text-left transition flex items-start gap-3 group disabled:opacity-50"
+        >
+          <div class="p-2 rounded-lg bg-omni-cyan/15 text-omni-cyan shrink-0 mt-0.5">
+            <Archive class="w-5 h-5" />
+          </div>
+          <div class="space-y-1">
+            <span class="font-bold text-white group-hover:text-omni-cyan block text-sm">
+              1. Desinstalar conservando mis archivos y configuración (Recomendado)
+            </span>
+            <p class="text-[11px] text-slate-400 leading-relaxed">
+              Cierra y desinstala el ejecutable de Omnicraft Studio, pero <strong>mantiene intacta</strong> tu carpeta <span class="font-mono text-slate-300">~/.omnicraft_studio</span> (instancias, mundos guardados, mods, skins y base de datos) por si deseas reinstalar o actualizar más adelante.
+            </p>
+          </div>
+        </button>
+
+        <!-- Opción 2: Eliminar todo lo relacionado al gestor -->
+        <button
+          type="button"
+          disabled={isUninstalling}
+          onclick={() => handleUninstallOmnicraft(true)}
+          class="w-full p-4 rounded-xl bg-obsidian-950 hover:bg-rose-950/30 border border-obsidian-750 hover:border-rose-500/60 text-left transition flex items-start gap-3 group disabled:opacity-50"
+        >
+          <div class="p-2 rounded-lg bg-rose-500/15 text-rose-400 shrink-0 mt-0.5">
+            <Trash2 class="w-5 h-5" />
+          </div>
+          <div class="space-y-1">
+            <span class="font-bold text-rose-300 group-hover:text-rose-200 block text-sm">
+              2. Eliminar todo lo relacionado al gestor (Limpieza Total)
+            </span>
+            <p class="text-[11px] text-slate-400 leading-relaxed">
+              Detiene todos los procesos, <strong>elimina por completo</strong> la carpeta <span class="font-mono text-rose-300">~/.omnicraft_studio</span> (base de datos SQLite, instancias, mundos, runtimes de Java, caché compartida y skins) y lanza la desinstalación del programa.
+            </p>
+          </div>
+        </button>
+      </div>
+
+      <div class="flex justify-end pt-2 border-t border-obsidian-800">
+        <button
+          type="button"
+          onclick={() => isUninstallModalOpen = false}
+          class="px-4 py-1.5 rounded-lg bg-obsidian-800 hover:bg-obsidian-750 text-slate-300 font-bold text-xs"
+        >
+          Cancelar
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <!-- MODAL EDITOR DE SKINS (OFFLINE Y MOJANG) -->
 <SkinEditorModal

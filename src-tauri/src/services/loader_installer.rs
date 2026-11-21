@@ -50,23 +50,65 @@ impl LoaderInstallerService {
         vanilla_dir.push("versions");
         vanilla_dir.push(mc_version);
         let vanilla_json_path = vanilla_dir.join(format!("{}.json", mc_version));
+        let vanilla_jar_path = vanilla_dir.join(format!("{}.jar", mc_version));
 
-        if !vanilla_json_path.exists() {
-            if let Ok(manifest_resp) = client.get("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json").send().await {
-                if manifest_resp.status().is_success() {
-                    if let Ok(manifest) = manifest_resp.json::<serde_json::Value>().await {
-                        if let Some(versions) = manifest["versions"].as_array() {
-                            if let Some(v_entry) = versions.iter().find(|v| v["id"].as_str() == Some(mc_version)) {
-                                if let Some(v_url) = v_entry["url"].as_str() {
-                                    if let Ok(v_resp) = client.get(v_url).send().await {
-                                        if v_resp.status().is_success() {
-                                            if let Ok(v_text) = v_resp.text().await {
-                                                fs::create_dir_all(&vanilla_dir).ok();
-                                                fs::write(&vanilla_json_path, v_text).ok();
-                                            }
-                                        }
-                                    }
-                                }
+        if !vanilla_json_path.exists() || !vanilla_jar_path.exists() {
+            let _ = Self::install_vanilla_version(folder_name, mc_version).await;
+        }
+
+        Ok(format!("Fabric Loader {} (MC {}) instalado con éxito.", loader_version, mc_version))
+    }
+
+    /// Descarga e instala el descriptor oficial JSON y el cliente .jar de Minecraft Vanilla en .minecraft/versions/<mc_version>/
+    pub async fn install_vanilla_version(folder_name: &str, mc_version: &str) -> Result<String, String> {
+        let client = reqwest::Client::builder()
+            .user_agent("OmnicraftStudio/1.1.3")
+            .timeout(std::time::Duration::from_secs(180))
+            .build()
+            .map_err(|e| e.to_string())?;
+
+        let mut vanilla_dir = crate::db::DbManager::resolve_omnicraft_dir();
+        vanilla_dir.push("instances");
+        vanilla_dir.push(folder_name);
+        vanilla_dir.push(".minecraft");
+        vanilla_dir.push("versions");
+        vanilla_dir.push(mc_version);
+        fs::create_dir_all(&vanilla_dir).map_err(|e| e.to_string())?;
+
+        let vanilla_json_path = vanilla_dir.join(format!("{}.json", mc_version));
+        let vanilla_jar_path = vanilla_dir.join(format!("{}.jar", mc_version));
+
+        let manifest_resp = client
+            .get("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json")
+            .send()
+            .await
+            .map_err(|e| format!("Error consultando manifiesto Mojang: {}", e))?;
+
+        let manifest: serde_json::Value = manifest_resp.json().await.map_err(|e| e.to_string())?;
+        let versions = manifest["versions"]
+            .as_array()
+            .ok_or_else(|| "Lista de versiones inválida en Mojang".to_string())?;
+
+        let v_entry = versions
+            .iter()
+            .find(|v| v["id"].as_str() == Some(mc_version))
+            .ok_or_else(|| format!("Versión {} no encontrada en Mojang", mc_version))?;
+
+        let v_url = v_entry["url"]
+            .as_str()
+            .ok_or_else(|| "URL de versión no disponible".to_string())?;
+
+        let v_resp = client.get(v_url).send().await.map_err(|e| e.to_string())?;
+        let v_text = v_resp.text().await.map_err(|e| e.to_string())?;
+        fs::write(&vanilla_json_path, &v_text).map_err(|e| e.to_string())?;
+
+        if !vanilla_jar_path.exists() {
+            if let Ok(v_json) = serde_json::from_str::<serde_json::Value>(&v_text) {
+                if let Some(client_url) = v_json["downloads"]["client"]["url"].as_str() {
+                    if let Ok(jar_resp) = client.get(client_url).send().await {
+                        if jar_resp.status().is_success() {
+                            if let Ok(jar_bytes) = jar_resp.bytes().await {
+                                let _ = fs::write(&vanilla_jar_path, &jar_bytes);
                             }
                         }
                     }
@@ -74,7 +116,7 @@ impl LoaderInstallerService {
             }
         }
 
-        Ok(format!("Fabric Loader {} (MC {}) instalado con éxito.", loader_version, mc_version))
+        Ok(format!("Minecraft Vanilla {} aprovisionado en {}", mc_version, vanilla_dir.display()))
     }
 
     /// Descarga la compilación más reciente y estable de PaperMC Server en el directorio raíz de la instancia
